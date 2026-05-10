@@ -1,41 +1,119 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-/node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
-
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
+# ──────────────────────────────────────────────
+# OS
+# ──────────────────────────────────────────────
 .DS_Store
-*.pem
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+.directory
 
-# debug
+# ──────────────────────────────────────────────
+# Editor / IDE
+# ──────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*.suo
+.history/
+
+# ──────────────────────────────────────────────
+# Environment & secrets  (never commit these)
+# ──────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.staging
+*.pem
+*.key
+secrets.json
+
+# ──────────────────────────────────────────────
+# Frontend — Node / Vite / React
+# ──────────────────────────────────────────────
+node_modules/
+dist/
+.vite/
+.cache/
+*.local
+
+# logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-.pnpm-debug.log*
+pnpm-debug.log*
+.npm
 
-# env files (can opt-in for committing if needed)
-.env*
+# linter caches
+.eslintcache
+.stylelintcache
 
-# vercel
-.vercel
-
-# typescript
+# TypeScript
 *.tsbuildinfo
-next-env.d.ts
+
+# ──────────────────────────────────────────────
+# Backend — Python / FastAPI
+# ──────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# packaging / build
+*.egg-info/
+.eggs/
+build/
+dist/
+sdist/
+wheels/
+MANIFEST
+
+# testing & coverage
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+nosetests.xml
+
+# type checkers
+.mypy_cache/
+.dmypy.json
+.pyre/
+.ruff_cache/
+
+# ──────────────────────────────────────────────
+# MongoDB
+# ──────────────────────────────────────────────
+mongod.lock
+/data/db/
+
+# ──────────────────────────────────────────────
+# Audio binary assets
+# Large binary files — use Git LFS or host externally.
+# Bundled default models/IRs should be tracked via LFS.
+# User-uploaded files must never be committed.
+# ──────────────────────────────────────────────
+# Uncomment if NOT using Git LFS:
+# *.onnx
+# public/models/*
+# public/irs/*
+
+# ──────────────────────────────────────────────
+# Misc
+# ──────────────────────────────────────────────
+*.log
+.turbo/
+.vercel/
