@@ -303,3 +303,4 @@ Ship with these using bundled models:
 - Full file contents when showing code, not partial snippets
 - Explain reasoning behind technical decisions
 - Commit per feature, no Co-Authored-By
+- **Always run the dev server and let the user test before committing** — never commit untested code

@@ -1,7 +1,14 @@
+// setSinkId is Chrome 110+ — not yet in the standard TS dom lib.
+type AudioContextWithSink = AudioContext & {
+  setSinkId?(deviceId: string): Promise<void>;
+};
+
 // Soft-clip distortion curve. amount 0–400.
-function makeDistortionCurve(amount: number): Float32Array {
+// Cast to Float32Array<ArrayBuffer> — TS6 tightened typed array generics and
+// WaveShaperNode.curve requires the concrete ArrayBuffer variant.
+function makeDistortionCurve(amount: number): Float32Array<ArrayBuffer> {
   const samples = 256;
-  const curve = new Float32Array(samples);
+  const curve = new Float32Array(samples) as Float32Array<ArrayBuffer>;
   for (let i = 0; i < samples; i++) {
     const x = (i * 2) / samples - 1;
     curve[i] = ((Math.PI + amount) * x) / (Math.PI + amount * Math.abs(x));
@@ -9,8 +16,13 @@ function makeDistortionCurve(amount: number): Float32Array {
   return curve;
 }
 
+export interface AudioEngineOptions {
+  inputDeviceId?: string;
+  outputDeviceId?: string;
+}
+
 export class AudioEngine {
-  private context: AudioContext | null = null;
+  private context: AudioContextWithSink | null = null;
   private stream: MediaStream | null = null;
   private sourceNode: MediaStreamAudioSourceNode | null = null;
   private analyserNode: AnalyserNode | null = null;
@@ -19,14 +31,15 @@ export class AudioEngine {
   private outputGainNode: GainNode | null = null;
   private _gain = 0.5;
 
-  async start(): Promise<void> {
+  async start(options: AudioEngineOptions = {}): Promise<void> {
     // AudioContext must be created synchronously inside the user gesture —
     // do this before the async getUserMedia call.
-    this.context = new AudioContext({ sampleRate: 48000 });
+    this.context = new AudioContext({ sampleRate: 48000 }) as AudioContextWithSink;
 
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: {
+          deviceId: options.inputDeviceId ? { exact: options.inputDeviceId } : undefined,
           echoCancellation: false,
           noiseSuppression: false,
           autoGainControl: false,
@@ -43,11 +56,26 @@ export class AudioEngine {
       await this.context.resume();
     }
 
+    if (options.outputDeviceId) {
+      await this.setOutputDevice(options.outputDeviceId);
+    }
+
     this.sourceNode = this.context.createMediaStreamSource(this.stream);
 
     this.analyserNode = this.context.createAnalyser();
     this.analyserNode.fftSize = 1024;
     this.analyserNode.smoothingTimeConstant = 0.6;
+
+    // A mono guitar jack on a stereo interface arrives as a 2-channel stream with
+    // signal on one channel and silence on the other (which channel depends on the
+    // interface). Downmix everything to 1 channel so the signal always comes through,
+    // then the rest of the chain upmixes back to stereo (both ears).
+    const monoSum = this.context.createGain();
+    monoSum.channelCount = 1;
+    monoSum.channelCountMode = 'explicit';
+    monoSum.channelInterpretation = 'speakers';
+    this.sourceNode.connect(monoSum);
+    monoSum.connect(this.analyserNode);
 
     // Pre-gain: maps Gain knob (0–1) to 0–4× amplitude boost.
     this.preGainNode = this.context.createGain();
@@ -61,8 +89,6 @@ export class AudioEngine {
     this.outputGainNode = this.context.createGain();
     this.outputGainNode.gain.value = 0.6;
 
-    // Chain: source → analyser (for meter) → pre-gain → waveshaper → output → speakers
-    this.sourceNode.connect(this.analyserNode);
     this.analyserNode.connect(this.preGainNode);
     this.preGainNode.connect(this.waveShaperNode);
     this.waveShaperNode.connect(this.outputGainNode);
@@ -73,8 +99,12 @@ export class AudioEngine {
     this._gain = value;
     if (!this.context || !this.preGainNode || !this.waveShaperNode) return;
     this.preGainNode.gain.setTargetAtTime(value * 4, this.context.currentTime, 0.01);
-    // Rebuild the curve — no smoothing for the waveshaper, it's cheap enough.
     this.waveShaperNode.curve = makeDistortionCurve(value * 400);
+  }
+
+  async setOutputDevice(deviceId: string): Promise<void> {
+    if (!this.context?.setSinkId) return;
+    await this.context.setSinkId(deviceId);
   }
 
   getAnalyser(): AnalyserNode | null {
