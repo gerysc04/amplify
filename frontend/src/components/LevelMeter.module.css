@@ -1,0 +1,19 @@
+.wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #555;
+  width: 20px;
+  text-align: right;
+}
+
+.canvas {
+  border-radius: 3px;
+  display: block;
+}

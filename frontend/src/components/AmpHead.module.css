@@ -1,0 +1,43 @@
+.head {
+  width: 100%;
+  max-width: 480px;
+  background: linear-gradient(175deg, #1e1e1e 0%, #141414 100%);
+  border: 1px solid #2e2e2e;
+  border-radius: 10px;
+  padding: 28px 32px 24px;
+  box-shadow:
+    0 4px 24px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.topBar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 28px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #252525;
+}
+
+.brand {
+  font-size: 20px;
+  font-weight: 900;
+  letter-spacing: 0.3em;
+  color: #ff6b35;
+  text-transform: uppercase;
+}
+
+.subtitle {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: #444;
+  text-transform: uppercase;
+}
+
+.controls {
+  display: flex;
+  gap: 28px;
+  justify-content: center;
+  align-items: flex-end;
+}
