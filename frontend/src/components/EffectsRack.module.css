@@ -1,0 +1,56 @@
+.rack {
+  display: flex;
+  gap: 10px;
+  padding: 14px 16px;
+  background: #0e0e0e;
+  border-top: 1px solid #222;
+  flex-wrap: wrap;
+}
+
+.effect {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: #161616;
+  border: 1px solid #2a2a2a;
+  border-radius: 6px;
+  min-width: 80px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toggle {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #444;
+  background: #1e1e1e;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: background 0.1s, box-shadow 0.1s;
+}
+
+.toggle.on {
+  background: #c0392b;
+  border-color: #e74c3c;
+  box-shadow: 0 0 5px #c0392b88;
+}
+
+.name {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: #555;
+  text-transform: uppercase;
+}
+
+.knobs {
+  display: flex;
+  gap: 6px;
+}

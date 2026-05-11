@@ -4,7 +4,12 @@ import LevelMeter from './LevelMeter';
 import DeviceSelector from './DeviceSelector';
 import ModelLoader from './ModelLoader';
 import CabLoader from './CabLoader';
-import { AudioEngine as AudioEngineCore } from '../lib/audio/AudioEngine';
+import EffectsRack from './EffectsRack';
+import {
+  AudioEngine as AudioEngineCore,
+  type GateParams, type EqParams,
+  type DelayParams, type ReverbParams, type ChorusParams,
+} from '../lib/audio/AudioEngine';
 import { enumerateAudioDevices } from '../lib/audio/devices';
 import styles from './AudioEngine.module.css';
 
@@ -24,16 +29,20 @@ export default function AudioEngine() {
   const [irName,       setIrName]       = useState<string | null>(null);
   const [irLoading,    setIrLoading]    = useState(false);
 
+  const [gate,   setGate]   = useState<GateParams>  ({ enabled: true, threshold: 0.02, attack: 0.003, release: 0.15 });
+  const [eq,     setEq]     = useState<EqParams>     ({ bass: 0, mid: 0, treble: 0 });
+  const [delay,  setDelay]  = useState<DelayParams>  ({ enabled: false, time: 0.3, feedback: 0.35, mix: 0.3 });
+  const [reverb, setReverb] = useState<ReverbParams> ({ enabled: false, mix: 0.25 });
+  const [chorus, setChorus] = useState<ChorusParams> ({ enabled: false, rate: 1.5, depth: 0.005, mix: 0.3 });
+
   const engineRef = useRef<AudioEngineCore | null>(null);
 
-  // Persist the engine across start/stop so models loaded before start() survive
   const getEngine = useCallback((): AudioEngineCore => {
     if (!engineRef.current) engineRef.current = new AudioEngineCore();
     return engineRef.current;
   }, []);
 
   useEffect(() => {
-    // Pre-create the engine so the user can load models before hitting START
     getEngine();
     enumerateAudioDevices().then(({ inputs, outputs }) => {
       setInputs(inputs);
@@ -53,36 +62,55 @@ export default function AudioEngine() {
     setError(null);
     try {
       const engine = getEngine();
-      await engine.start({
-        inputDeviceId:  inputId  || undefined,
-        outputDeviceId: outputId || undefined,
-      });
+      await engine.start({ inputDeviceId: inputId || undefined, outputDeviceId: outputId || undefined });
       setAnalyser(engine.getAnalyser());
       setRunning(true);
-
       const { inputs, outputs } = await enumerateAudioDevices();
       setInputs(inputs);
       setOutputs(outputs);
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      setError(`Could not start audio: ${message}`);
+      setError(`Could not start audio: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
   }, [getEngine, inputId, outputId]);
 
   const handleStop = useCallback(() => {
     engineRef.current?.stop();
-    // Keep the engine instance alive so the loaded model survives stop/start
     setAnalyser(null);
     setRunning(false);
   }, []);
 
   // ---------------------------------------------------------------------------
-  // Parameters
+  // Parameter handlers
   // ---------------------------------------------------------------------------
 
   const handleGainChange = useCallback((value: number) => {
     setGain(value);
     engineRef.current?.setGain(value);
+  }, []);
+
+  const handleEqChange = useCallback((p: EqParams) => {
+    setEq(p);
+    engineRef.current?.setEqParams(p);
+  }, []);
+
+  const handleGateChange = useCallback((p: GateParams) => {
+    setGate(p);
+    engineRef.current?.setGateParams(p);
+  }, []);
+
+  const handleDelayChange = useCallback((p: DelayParams) => {
+    setDelay(p);
+    engineRef.current?.setDelayParams(p);
+  }, []);
+
+  const handleReverbChange = useCallback((p: ReverbParams) => {
+    setReverb(p);
+    engineRef.current?.setReverbParams(p);
+  }, []);
+
+  const handleChorusChange = useCallback((p: ChorusParams) => {
+    setChorus(p);
+    engineRef.current?.setChorusParams(p);
   }, []);
 
   const handleOutputChange = useCallback((id: string) => {
@@ -101,8 +129,7 @@ export default function AudioEngine() {
       await getEngine().loadNamModel(file);
       setModelName(file.name.replace(/\.nam$/i, ''));
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      setError(`Failed to load model: ${message}`);
+      setError(`Failed to load model: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setModelLoading(false);
     }
@@ -115,8 +142,7 @@ export default function AudioEngine() {
       await getEngine().loadCabIR(file);
       setIrName(file.name.replace(/\.wav$/i, ''));
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      setError(`Failed to load cab IR: ${message}`);
+      setError(`Failed to load cab IR: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setIrLoading(false);
     }
@@ -131,13 +157,18 @@ export default function AudioEngine() {
   return (
     <div className={styles.root}>
       <AmpHead
-        gain={gain}
-        onGainChange={handleGainChange}
-        modelName={modelName}
-        namLoaded={namLoaded}
+        gain={gain}     onGainChange={handleGainChange}
+        eq={eq}         onEqChange={handleEqChange}
+        modelName={modelName} namLoaded={namLoaded}
       />
       <ModelLoader modelName={modelName} loading={modelLoading} onLoad={handleModelLoad} />
       <CabLoader   irName={irName}       loading={irLoading}    onLoad={handleIRLoad}    />
+      <EffectsRack
+        gate={gate}     onGate={handleGateChange}
+        delay={delay}   onDelay={handleDelayChange}
+        reverb={reverb} onReverb={handleReverbChange}
+        chorus={chorus} onChorus={handleChorusChange}
+      />
       <DeviceSelector
         inputs={inputs}    outputs={outputs}
         inputId={inputId}  outputId={outputId}
