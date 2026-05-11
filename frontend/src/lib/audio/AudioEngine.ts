@@ -1,49 +1,55 @@
+import { NamProcessor } from './NamProcessor';
+
 // setSinkId is Chrome 110+ — not yet in the standard TS dom lib.
 type AudioContextWithSink = AudioContext & {
   setSinkId?(deviceId: string): Promise<void>;
 };
 
-// Soft-clip distortion curve. amount 0–400.
-// Cast to Float32Array<ArrayBuffer> — TS6 tightened typed array generics and
-// WaveShaperNode.curve requires the concrete ArrayBuffer variant.
-function makeDistortionCurve(amount: number): Float32Array<ArrayBuffer> {
-  const samples = 256;
-  const curve = new Float32Array(samples) as Float32Array<ArrayBuffer>;
-  for (let i = 0; i < samples; i++) {
-    const x = (i * 2) / samples - 1;
-    curve[i] = ((Math.PI + amount) * x) / (Math.PI + amount * Math.abs(x));
-  }
-  return curve;
+/** A single-sample impulse: convolution with this = passthrough. */
+function makeDirac(ctx: AudioContext): AudioBuffer {
+  const buf = ctx.createBuffer(1, 1, ctx.sampleRate);
+  buf.getChannelData(0)[0] = 1;
+  return buf;
 }
 
 export interface AudioEngineOptions {
-  inputDeviceId?: string;
+  inputDeviceId?:  string;
   outputDeviceId?: string;
 }
 
 export class AudioEngine {
-  private context: AudioContextWithSink | null = null;
-  private stream: MediaStream | null = null;
-  private sourceNode: MediaStreamAudioSourceNode | null = null;
-  private analyserNode: AnalyserNode | null = null;
-  private preGainNode: GainNode | null = null;
-  private waveShaperNode: WaveShaperNode | null = null;
-  private outputGainNode: GainNode | null = null;
+  private context:       AudioContextWithSink | null = null;
+  private stream:        MediaStream          | null = null;
+  private sourceNode:    MediaStreamAudioSourceNode | null = null;
+  private analyserNode:  AnalyserNode         | null = null;
+  private preGainNode:   GainNode             | null = null;
+  private workletNode:   AudioWorkletNode     | null = null;
+  private convolverNode: ConvolverNode        | null = null;
+  private outputGainNode: GainNode            | null = null;
   private _gain = 0.5;
+  private _irLoaded = false;
+
+  readonly nam: NamProcessor;
+
+  constructor() {
+    this.nam = new NamProcessor();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lifecycle
+  // ---------------------------------------------------------------------------
 
   async start(options: AudioEngineOptions = {}): Promise<void> {
-    // AudioContext must be created synchronously inside the user gesture —
-    // do this before the async getUserMedia call.
-    this.context = new AudioContext({ sampleRate: 48000 }) as AudioContextWithSink;
+    this.context = new AudioContext({ latencyHint: 'interactive', sampleRate: 48000 }) as AudioContextWithSink;
 
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           deviceId: options.inputDeviceId ? { exact: options.inputDeviceId } : undefined,
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-          sampleRate: 48000,
+          echoCancellation:  false,
+          noiseSuppression:  false,
+          autoGainControl:   false,
+          sampleRate:        48000,
         },
       });
     } catch (err) {
@@ -52,54 +58,95 @@ export class AudioEngine {
       throw err;
     }
 
-    if (this.context.state === 'suspended') {
-      await this.context.resume();
-    }
+    if (this.context.state === 'suspended') await this.context.resume();
+    if (options.outputDeviceId) await this.setOutputDevice(options.outputDeviceId);
 
-    if (options.outputDeviceId) {
-      await this.setOutputDevice(options.outputDeviceId);
-    }
-
+    // --- Source ---
     this.sourceNode = this.context.createMediaStreamSource(this.stream);
 
+    // --- Analyser (level meter reads from here) ---
     this.analyserNode = this.context.createAnalyser();
     this.analyserNode.fftSize = 1024;
     this.analyserNode.smoothingTimeConstant = 0.6;
 
-    // A mono guitar jack on a stereo interface arrives as a 2-channel stream with
-    // signal on one channel and silence on the other (which channel depends on the
-    // interface). Downmix everything to 1 channel so the signal always comes through,
-    // then the rest of the chain upmixes back to stereo (both ears).
+    // --- Mono downmix ---
+    // Guitar arrives as stereo stream (signal on one channel, silence on the other).
+    // Force to 1 channel so it sounds centered regardless of which channel is active.
     const monoSum = this.context.createGain();
-    monoSum.channelCount = 1;
+    monoSum.channelCount     = 1;
     monoSum.channelCountMode = 'explicit';
     monoSum.channelInterpretation = 'speakers';
-    this.sourceNode.connect(monoSum);
-    monoSum.connect(this.analyserNode);
 
-    // Pre-gain: maps Gain knob (0–1) to 0–4× amplitude boost.
+    // --- Pre-gain (Gain knob) ---
     this.preGainNode = this.context.createGain();
     this.preGainNode.gain.value = this._gain * 4;
 
-    this.waveShaperNode = this.context.createWaveShaper();
-    this.waveShaperNode.curve = makeDistortionCurve(this._gain * 400);
-    this.waveShaperNode.oversample = '4x';
+    // --- NAM AudioWorklet ---
+    await this.context.audioWorklet.addModule('/worklets/nam-processor.js');
+    this.workletNode = new AudioWorkletNode(this.context, 'nam-processor');
+    this.nam.attach(this.workletNode); // bridges worklet ↔ ONNX on main thread
 
-    // Output gain keeps the signal at a sane level after the wave shaper.
+    // --- Cabinet IR (ConvolverNode) ---
+    // Initialised with a dirac delta so it acts as a passthrough until an IR is loaded.
+    this.convolverNode = this.context.createConvolver();
+    this.convolverNode.normalize = false;
+    this.convolverNode.buffer    = makeDirac(this.context);
+
+    // --- Output gain ---
     this.outputGainNode = this.context.createGain();
     this.outputGainNode.gain.value = 0.6;
 
+    // --- Connect the chain ---
+    // source → monoSum → analyser → preGain → NAM worklet → cab IR → output → speakers
+    this.sourceNode.connect(monoSum);
+    monoSum.connect(this.analyserNode);
     this.analyserNode.connect(this.preGainNode);
-    this.preGainNode.connect(this.waveShaperNode);
-    this.waveShaperNode.connect(this.outputGainNode);
+    this.preGainNode.connect(this.workletNode);
+    this.workletNode.connect(this.convolverNode);
+    this.convolverNode.connect(this.outputGainNode);
     this.outputGainNode.connect(this.context.destination);
   }
 
+  stop(): void {
+    this.nam.detach();
+    this.sourceNode?.disconnect();
+    this.stream?.getTracks().forEach((t) => t.stop());
+    this.context?.close();
+    this.context        = null;
+    this.stream         = null;
+    this.sourceNode     = null;
+    this.analyserNode   = null;
+    this.preGainNode    = null;
+    this.workletNode    = null;
+    this.convolverNode  = null;
+    this.outputGainNode = null;
+    this._irLoaded      = false;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Model / IR loading (can be called before or after start())
+  // ---------------------------------------------------------------------------
+
+  async loadNamModel(file: File): Promise<void> {
+    await this.nam.loadModel(file);
+  }
+
+  async loadCabIR(file: File): Promise<void> {
+    if (!this.context || !this.convolverNode) return;
+    const arrayBuf    = await file.arrayBuffer();
+    const audioBuffer = await this.context.decodeAudioData(arrayBuf);
+    this.convolverNode.buffer = audioBuffer;
+    this._irLoaded = true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Parameter control
+  // ---------------------------------------------------------------------------
+
   setGain(value: number): void {
     this._gain = value;
-    if (!this.context || !this.preGainNode || !this.waveShaperNode) return;
+    if (!this.context || !this.preGainNode) return;
     this.preGainNode.gain.setTargetAtTime(value * 4, this.context.currentTime, 0.01);
-    this.waveShaperNode.curve = makeDistortionCurve(value * 400);
   }
 
   async setOutputDevice(deviceId: string): Promise<void> {
@@ -107,20 +154,11 @@ export class AudioEngine {
     await this.context.setSinkId(deviceId);
   }
 
-  getAnalyser(): AnalyserNode | null {
-    return this.analyserNode;
-  }
+  // ---------------------------------------------------------------------------
+  // Accessors
+  // ---------------------------------------------------------------------------
 
-  stop(): void {
-    this.sourceNode?.disconnect();
-    this.stream?.getTracks().forEach((t) => t.stop());
-    this.context?.close();
-    this.context = null;
-    this.stream = null;
-    this.sourceNode = null;
-    this.analyserNode = null;
-    this.preGainNode = null;
-    this.waveShaperNode = null;
-    this.outputGainNode = null;
-  }
+  getAnalyser():   AnalyserNode | null { return this.analyserNode; }
+  isNamLoaded():   boolean             { return this.nam.isLoaded(); }
+  isIRLoaded():    boolean             { return this._irLoaded; }
 }
