@@ -2,7 +2,7 @@
 
 Browser-based guitar amp simulator. User plugs guitar into audio interface, opens Chrome,
 plays through real amp tones powered by NAM (Neural Amp Modeler) AI models — all client-side,
-no plugins, no installation.
+no plugins, no installation, no backend.
 
 ---
 
@@ -16,8 +16,7 @@ no plugins, no installation.
 
 ```
 amplify/
-  frontend/     ← Vite + React + TypeScript SPA
-  backend/      ← FastAPI (Python) — Phase 5+
+  frontend/     ← Vite + React + TypeScript SPA (100% client-side, no backend)
   CLAUDE.md
   .gitignore
 ```
@@ -31,74 +30,59 @@ amplify/
 - **CSS modules** — no Tailwind
 - `"use client"` pattern is irrelevant (no SSR); audio/MIDI components are plain React
 
-### Audio (all client-side — no server involved)
+### Audio (all client-side)
 - **Web Audio API** — browser audio graph
 - **AudioWorklet** — real-time DSP in dedicated audio thread (128-sample chunks)
-- **onnxruntime-web** — runs NAM `.onnx` models via WebAssembly in the browser
+- **NAM inference** — inline JS WaveNet/LSTM inference, no ONNX runtime needed
 - **ConvolverNode** — cab IR convolution
-
-### Backend (Phase 5+)
-- **FastAPI** (Python) — async, typed via Pydantic, auto OpenAPI docs
-- **Motor** — async MongoDB driver for Python
-- **MongoDB** — running locally on the VPS (not Atlas)
-- **python-jose / passlib** — JWT auth + password hashing
+- **Rust/WASM** — pitch shifter only (Phase 9)
 
 ### MIDI
 - **Web MIDI API** — connects to pedalboards and controllers
 
 ### Storage
 - **localStorage** — preset JSON metadata
-- **IndexedDB** — NAM model files, cab IR files (binary)
-- **MongoDB** — user accounts and cloud preset sync (Phase 5)
+- **IndexedDB** — NAM model files, cab IR files (binary blobs)
 
 ### Deployment
 - **VPS** (self-hosted)
-- **Nginx** — serves static frontend build, reverse-proxies `/api/*` → FastAPI on `localhost:8000`
-- No Vercel, no serverless
+- **Nginx** — serves static frontend build
+- No backend, no API, no database
 
 ---
 
 ## Architecture
 
-```
-                        VPS
-┌────────────────────────────────────────────┐
-│  Nginx :80/:443                            │
-│    /         → serves frontend/dist/       │
-│    /api/*    → proxy → FastAPI :8000       │
-│                                            │
-│  FastAPI (Python)  :8000                   │
-│    /api/auth/*      ← NextAuth-equivalent  │
-│    /api/presets/*   ← CRUD                 │
-│    /api/community/* ← sharing (Phase 5+)   │
-│                                            │
-│  MongoDB  :27017  (local, not Atlas)       │
-└────────────────────────────────────────────┘
+Pure client-side SPA. No server component beyond static file serving.
 
+```
 Browser (Chrome)
-  Vite static bundle — all audio runs here
-  API calls → https://yourdomain.com/api/*
+  Vite static bundle — all audio and storage runs here
+  localStorage  → preset metadata
+  IndexedDB     → model/IR binary files
 ```
 
 ---
 
-## Signal chain (full, Phases 1–3)
+## Signal chain (complete, Phases 1–3 implemented)
 
 ```
 Guitar → Audio Interface → getUserMedia
-  → Noise Gate (AudioWorklet)
-  → Pre-gain (GainNode)        ← Gain knob
-  → NAM Model (ONNX/AudioWorklet)
-  → Post-EQ (BiquadFilterNode) ← Bass/Mid/Treble knobs
-  → Cab IR (ConvolverNode)
-  → Effects (Delay/Reverb/Chorus)
+  → Noise Gate (AudioWorklet)          ← Threshold knob, on/off
+  → Pre-gain (GainNode)                ← Gain knob
+  → NAM Model (AudioWorklet)           ← .nam file
+  → Compressor (AudioWorklet)          ← Threshold/Ratio/Attack/Release (Phase 6)
+  → Post-EQ (BiquadFilterNode ×3)      ← Bass/Mid/Treble knobs
+  → Cab IR (ConvolverNode)             ← .wav file
+  → Delay (DelayNode)                  ← Time/Feedback/Mix, on/off
+  → Reverb (ConvolverNode)             ← Mix, on/off
+  → Chorus (LFO + DelayNode)           ← Rate/Depth/Mix, on/off
+  → Pitch Shifter (Rust/WASM)          ← Semitones (Phase 9)
   → Output
 ```
 
-Phase 1 placeholder chain (no NAM yet):
-```
-getUserMedia → Analyser (level meter) → Pre-gain → WaveShaperNode → Output gain → destination
-```
+Tuner and spectrum analyser run as parallel AnalyserNode taps, not in the main chain.
+Looper inserts after the full chain, capturing the processed signal (Phase 7).
 
 ---
 
@@ -130,14 +114,18 @@ navigator.mediaDevices.getUserMedia({
 await audioContext.audioWorklet.addModule('/worklets/nam-processor.js');
 ```
 
-### ONNX is async, AudioWorklet is sync
-Need a ring buffer to bridge async ONNX inference with synchronous 128-sample chunks.
-
 ### NAM knobs are external to the model
-The NAM `.onnx` model has no parameters. Knobs are audio nodes around it:
+The NAM `.nam` model has no parameters. Knobs are audio nodes around it:
 ```
-Pre-gain → NAM model → Post-EQ
+Pre-gain → NAM model → Compressor → Post-EQ
 ```
+
+### Looper timing must be sample-accurate
+Use AudioContext.currentTime scheduling, not setTimeout.
+Loop boundaries must align to exact sample counts to avoid clicks.
+
+### Pitch shifter is WASM only
+Only the pitch shifter uses Rust/WASM. Everything else is plain JS AudioWorklet.
 
 ---
 
@@ -146,52 +134,54 @@ Pre-gain → NAM model → Post-EQ
 ```
 frontend/
   src/
-    app/          ← React Router or flat page structure (TBD Phase 4)
     components/
       AudioEngine.tsx      ← React orchestrator
-      AmpHead.tsx          ← Amp head UI + knobs
-      EffectsRack.tsx      ← Effects chain UI (Phase 3)
-      PresetBrowser.tsx    ← Preset list (Phase 4)
-      ModelLoader.tsx      ← NAM file picker (Phase 2)
-      CabLoader.tsx        ← IR file picker (Phase 2)
+      AmpHead.tsx          ← Amp head UI + Gain/EQ knobs
+      EffectsRack.tsx      ← Gate/Delay/Reverb/Chorus UI
+      PresetBrowser.tsx    ← Preset list (Phase 5)
+      ModelLoader.tsx      ← NAM file picker
+      CabLoader.tsx        ← IR file picker
       LevelMeter.tsx       ← RMS input level bar
-      MidiController.tsx   ← MIDI setup (Phase 6)
+      SpectrumAnalyser.tsx ← Real-time FFT display (Phase 8)
+      ParametricEQ.tsx     ← Graphical EQ with draggable nodes (Phase 8)
+      Tuner.tsx            ← Chromatic tuner display (Phase 6)
+      Looper.tsx           ← Loop recorder UI (Phase 7)
+      Recorder.tsx         ← Record + export WAV UI (Phase 7)
+      MidiController.tsx   ← MIDI setup + learn mode (Phase 5)
       knobs/
         Knob.tsx           ← Reusable SVG rotary knob
         Toggle.tsx         ← Stomp switch on/off
     lib/
       audio/
-        AudioEngine.ts     ← Pure TS AudioContext lifecycle class
-        NamProcessor.ts    ← ONNX model loading + inference (Phase 2)
-        EffectsChain.ts    ← Web Audio node management (Phase 3)
-        RingBuffer.ts      ← Async/sync bridge for ONNX (Phase 2)
+        AudioEngine.ts     ← AudioContext lifecycle + signal chain
+        NamProcessor.ts    ← .nam file parsing + worklet bridge
+        EffectsChain.ts    ← Post-cab effects nodes
+        Compressor.ts      ← Dynamics processor (Phase 6)
+        Looper.ts          ← Sample-accurate loop recorder (Phase 7)
+        Recorder.ts        ← MediaRecorder WAV export (Phase 7)
+        PitchDetector.ts   ← Autocorrelation/YIN tuner (Phase 6)
+        nam/
+          index.ts         ← Weight parser + validator
+          types.ts         ← NAM config interfaces
       storage/
-        PresetManager.ts   ← localStorage preset CRUD (Phase 4)
-        FileCache.ts       ← IndexedDB for .onnx/.wav (Phase 4)
+        PresetManager.ts   ← localStorage preset CRUD (Phase 5)
+        FileCache.ts       ← IndexedDB for .nam/.wav (Phase 5)
       midi/
-        MidiManager.ts     ← Web MIDI API wrapper (Phase 6)
+        MidiManager.ts     ← Web MIDI API wrapper (Phase 5)
     types/
-      audio.ts             ← AudioEngine types, PresetShape, etc.
+      audio.ts             ← Shared TypeScript interfaces
   public/
     worklets/
-      nam-processor.js     ← AudioWorklet processor (Phase 2)
-      gate-processor.js    ← Noise gate AudioWorklet (Phase 3)
-    models/                ← Bundled default NAM models (CC0/BY) — use Git LFS
+      nam-processor.js     ← NAM inference (WaveNet + LSTM)
+      gate-processor.js    ← Noise gate
+      compressor-processor.js ← Dynamics (Phase 6)
+      pitch-processor.js   ← Feeds pitch detector (Phase 6)
+      looper-processor.js  ← Sample-accurate looper (Phase 7)
+      pitch-shifter.js     ← Rust/WASM wrapper (Phase 9)
+    wasm/
+      pitch_shifter.wasm   ← Compiled Rust (Phase 9)
+    models/                ← Bundled default NAM models (CC0/BY) — Git LFS
     irs/                   ← Bundled default cab IRs
-
-backend/
-  main.py                  ← FastAPI app entry point
-  routers/
-    auth.py
-    presets.py
-    community.py
-  models/
-    user.py                ← Pydantic models
-    preset.py
-  db/
-    mongo.py               ← Motor client setup
-  requirements.txt
-  .env.example
 ```
 
 ---
@@ -203,13 +193,15 @@ interface Preset {
   id: string;
   name: string;
   namModel: { filename: string; source: 'bundled' | 'uploaded' | 'indexeddb'; available: boolean };
-  cabIR: { filename: string; source: 'bundled' | 'uploaded' };
-  amp: { gain: number; bass: number; mid: number; treble: number; presence: number; volume: number };
-  gate: { enabled: boolean; threshold: number; attack: number; release: number };
-  eq: { enabled: boolean; bass: number; mid: number; treble: number };
-  delay: { enabled: boolean; time: number; feedback: number; mix: number };
-  reverb: { enabled: boolean; mix: number };
-  chorus: { enabled: boolean; rate: number; depth: number; mix: number };
+  cabIR:    { filename: string; source: 'bundled' | 'uploaded' };
+  amp:      { gain: number };
+  gate:     { enabled: boolean; threshold: number; attack: number; release: number };
+  eq:       { bass: number; mid: number; treble: number };
+  compressor: { enabled: boolean; threshold: number; ratio: number; attack: number; release: number; makeupGain: number };
+  delay:    { enabled: boolean; time: number; feedback: number; mix: number };
+  reverb:   { enabled: boolean; mix: number };
+  chorus:   { enabled: boolean; rate: number; depth: number; mix: number };
+  pitchShift: { enabled: boolean; semitones: number };
 }
 ```
 
@@ -229,78 +221,87 @@ Show a "Get more amps →" button that opens the site in a new tab. Users downlo
 
 ---
 
-## Default presets (Phase 4)
+## Default presets (Phase 5)
 Ship with these using bundled models:
 - **Clean** — Fender-style, low gain, chorus on
 - **Crunch** — Marshall-style, mid gain
 - **Lead** — Friedman/Mesa, high gain, delay on
-- **Metal** — tight high gain, gate on, scooped mids
-- **Ambient** — clean, heavy reverb, long delay
+- **Metal** — tight high gain, gate on, scooped mids, compressor on
+- **Ambient** — clean, heavy reverb, long delay, chorus on
 
 ---
 
 ## Development phases
 
-### Phase 1 — Audio Foundation ✅ IN PROGRESS (migrating to Vite + TS)
+### Phase 1 — Audio Foundation ✅
 - getUserMedia with correct constraints
 - AudioContext on user gesture (Start button)
-- WaveShaperNode distortion (NAM placeholder)
+- WaveShaperNode distortion placeholder
 - Pre-gain GainNode (Gain knob)
 - Input level meter (RMS via AnalyserNode)
 - SVG rotary Knob component
-- Clean dark UI with CSS modules
+- Device selection (input/output)
 
-**Done when:** Plug in guitar → click Start → hear distorted signal through headphones.
+### Phase 2 — NAM Integration ✅
+- Native .nam file parsing (JSON + flat weight array)
+- Inline WaveNet + LSTM inference in AudioWorklet (no ONNX)
+- Sample-accurate inference, no ring buffer
+- ConvolverNode for cab IR (.wav loader)
+- Model survives stop/start cycle
 
-### Phase 2 — NAM Integration
-- Install onnxruntime-web
-- AudioWorklet processor for NAM
-- Ring buffer (async ONNX ↔ sync 128-sample chunks)
-- .onnx file loader (file picker + IndexedDB cache)
-- ConvolverNode for cab IR
-- .wav IR file loader
-
-**Done when:** Load a .onnx NAM model + cab IR → hear real amp tone.
-
-### Phase 3 — Effects Chain
-- Noise gate (AudioWorklet)
-- 3-band EQ (BiquadFilterNode)
-- Delay (DelayNode)
-- Reverb (ConvolverNode + room IR)
-- Chorus (LFO + short DelayNode)
-- All with on/off toggles and parameter knobs
+### Phase 3 — Effects Chain ✅
+- Noise gate AudioWorklet (RMS envelope follower), enabled by default
+- 3-band EQ (lowshelf / peaking / highshelf BiquadFilterNodes)
+- Delay with feedback loop
+- Reverb (synthetic exponential IR)
+- Chorus (LFO-modulated short delay)
+- All effects: wet/dry mix + on/off bypass
 
 ### Phase 4 — UI & Presets
-- Full amp head UI with all knobs
-- Effects rack UI
-- Preset save/load/export/import
-- Default presets
-- IndexedDB file caching
-- Model + IR library UI
+- Preset save/load/export/import (localStorage metadata + IndexedDB files)
+- Default bundled presets (5 starting points)
+- Model + IR library panel (list cached files, delete, re-upload)
+- "Get more amps →" link to tone3000.com
 
-### Phase 5 — Fullstack (Python backend)
-- FastAPI app bootstrapped
-- MongoDB local on VPS
-- User auth (JWT — python-jose + passlib)
-- Preset sync to MongoDB
-- Community preset sharing
-
-### Phase 6 — MIDI
+### Phase 5 — MIDI
 - Web MIDI API (requestMIDIAccess)
-- MIDI learn mode (click knob, move controller)
-- CC → parameter, PC → preset switch
-- Expression pedal support
+- MIDI learn mode: click any knob → move controller → mapped
+- CC → any parameter (bidirectional: knob moves controller LED too if supported)
+- PC messages → preset switch
+- Expression pedal → assignable (default: volume)
 
-### Phase 7 — Pitch Shifter (Rust/WASM)
-- Rust RubberBand pitch shift compiled to WASM
-- Loaded alongside JS in AudioWorklet
-- Only this component uses Rust
+### Phase 6 — Tuner + Compressor
+- **Chromatic tuner**: YIN pitch detection algorithm in an AudioWorklet tap;
+  display shows note name, cents deviation, in-tune indicator
+- **Compressor**: AudioWorklet-based soft-knee dynamics processor;
+  knobs: Threshold / Ratio / Attack / Release / Makeup Gain;
+  inserts after NAM, before EQ
+
+### Phase 7 — Looper + Recording
+- **Recorder**: MediaRecorder API captures the final output; export as WAV;
+  simple UI: record / stop / download
+- **Looper**: sample-accurate loop recorder using AudioWorklet + SharedArrayBuffer;
+  record → play → overdub layers; loop length set on first record pass;
+  click track optional
+
+### Phase 8 — Graphical Parametric EQ + Spectrum Analyser
+- Replace 3-band EQ with full parametric EQ (up to 8 bands);
+  each band: frequency / gain / Q / type (peak/shelf/notch/HPF/LPF)
+- SVG/Canvas overlay showing real-time frequency response curve (Bode plot);
+  bands are draggable nodes on the curve
+- Spectrum analyser: real-time FFT display (AnalyserNode tap) rendered behind the EQ curve
+
+### Phase 9 — Pitch Shifter (Rust/WASM)
+- Rust implementation of a high-quality pitch shifting algorithm (e.g. RubberBand or custom PSOLA)
+- Compiled to WASM, loaded inside an AudioWorklet
+- Knob: semitones (−12 to +12), optionally formant preservation toggle
+- Only component in the project that uses Rust
 
 ---
 
 ## Developer preferences
-- TypeScript for frontend, Python (typed with Pydantic) for backend
+- TypeScript for all frontend code
+- CSS modules, no Tailwind
 - Full file contents when showing code, not partial snippets
-- Explain reasoning behind technical decisions
 - Commit per feature, no Co-Authored-By
 - **Always run the dev server and let the user test before committing** — never commit untested code
