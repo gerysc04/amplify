@@ -1,3 +1,6 @@
+import type { WahParams, WhammyParams } from '../../types/audio';
+
+export type { WahParams, WhammyParams };
 export interface DelayParams  { enabled: boolean; time: number; feedback: number; mix: number; }
 export interface ReverbParams { enabled: boolean; mix: number; }
 export interface ChorusParams { enabled: boolean; rate: number; depth: number; mix: number; }
@@ -16,14 +19,20 @@ function makeReverbIR(ctx: AudioContext): AudioBuffer {
 }
 
 /**
- * Post-cab effects: delay → reverb → chorus (series, each with wet/dry mix).
- * Connect: source → this.input … this.output → destination.
+ * Post-cab effects chain: whammy → delay → reverb → chorus.
+ * Wah is pre-amp and managed directly in AudioEngine.
  */
 export class EffectsChain {
   readonly input:  GainNode;
   readonly output: GainNode;
 
   private _ctx: AudioContext;
+
+  // Whammy (pitch shift)
+  private _whammyNode: AudioWorkletNode | null = null;
+  private _whammyDry:  GainNode;
+  private _whammyWet:  GainNode;
+  private _whammyIn:   GainNode;
 
   // Delay
   private _delayNode: DelayNode;
@@ -50,20 +59,29 @@ export class EffectsChain {
     this.input  = ctx.createGain();
     this.output = ctx.createGain();
 
-    // ---- Delay --------------------------------------------------------
+    // ---- Whammy (AudioWorkletNode loaded lazily) -------------------------
+    this._whammyIn  = ctx.createGain();
+    this._whammyDry = ctx.createGain(); this._whammyDry.gain.value = 1;
+    this._whammyWet = ctx.createGain(); this._whammyWet.gain.value = 0;
+
+    this.input.connect(this._whammyIn);
+    this._whammyIn.connect(this._whammyDry);
+    // _whammyNode connected when worklet loads
+
+    // ---- Delay -----------------------------------------------------------
     this._delayNode = ctx.createDelay(2.0);
     this._delayNode.delayTime.value = 0.3;
     this._delayFb  = ctx.createGain(); this._delayFb.gain.value  = 0.35;
     this._delayDry = ctx.createGain(); this._delayDry.gain.value = 1;
     this._delayWet = ctx.createGain(); this._delayWet.gain.value = 0;
 
-    this.input.connect(this._delayDry);
-    this.input.connect(this._delayNode);
+    this._whammyDry.connect(this._delayDry);
+    this._whammyDry.connect(this._delayNode);
     this._delayNode.connect(this._delayFb);
-    this._delayFb.connect(this._delayNode); // feedback loop (Web Audio allows cycles with delay)
+    this._delayFb.connect(this._delayNode);
     this._delayNode.connect(this._delayWet);
 
-    // ---- Reverb -------------------------------------------------------
+    // ---- Reverb ----------------------------------------------------------
     this._reverbIn  = ctx.createGain();
     this._reverb    = ctx.createConvolver();
     this._reverb.normalize = true;
@@ -77,15 +95,15 @@ export class EffectsChain {
     this._reverbIn.connect(this._reverb);
     this._reverb.connect(this._reverbWet);
 
-    // ---- Chorus -------------------------------------------------------
+    // ---- Chorus ----------------------------------------------------------
     this._chorusIn    = ctx.createGain();
     this._chorusDelay = ctx.createDelay(0.05);
     this._chorusDelay.delayTime.value = 0.012;
     this._chorusLfo   = ctx.createOscillator();
-    this._chorusLfo.type             = 'sine';
-    this._chorusLfo.frequency.value  = 1.5;
+    this._chorusLfo.type            = 'sine';
+    this._chorusLfo.frequency.value = 1.5;
     this._chorusLfoG  = ctx.createGain();
-    this._chorusLfoG.gain.value      = 0.005; // ±5 ms
+    this._chorusLfoG.gain.value     = 0.005;
     this._chorusDry   = ctx.createGain(); this._chorusDry.gain.value = 1;
     this._chorusWet   = ctx.createGain(); this._chorusWet.gain.value = 0;
 
@@ -103,7 +121,32 @@ export class EffectsChain {
     this._chorusWet.connect(this.output);
   }
 
-  // ---- Parameter setters -----------------------------------------------
+  /** Call after AudioWorklet module is loaded */
+  initWhammy(): void {
+    try {
+      this._whammyNode = new AudioWorkletNode(this._ctx, 'whammy-processor');
+      this._whammyIn.connect(this._whammyNode);
+      this._whammyNode.connect(this._whammyWet);
+      this._whammyWet.connect(this._delayDry);
+      this._whammyWet.connect(this._delayNode);
+    } catch {
+      // Worklet not available — whammy dry path still works
+    }
+  }
+
+  // ---- Parameter setters -------------------------------------------------
+
+  setWhammy({ enabled, semitones, expression, mix }: WhammyParams): void {
+    const t       = this._ctx.currentTime;
+    const node    = this._whammyNode;
+    const actual  = semitones * (expression ?? 0);
+    if (node) {
+      (node.parameters as AudioParamMap).get('semitones')?.setTargetAtTime(actual, t, 0.02);
+      (node.parameters as AudioParamMap).get('mix')?.setTargetAtTime(1, t, 0.02);
+    }
+    this._whammyWet.gain.setTargetAtTime(enabled && node ? mix     : 0, t, 0.02);
+    this._whammyDry.gain.setTargetAtTime(enabled && node ? 1 - mix : 1, t, 0.02);
+  }
 
   setDelay({ enabled, time, feedback, mix }: DelayParams): void {
     const t = this._ctx.currentTime;
@@ -129,5 +172,6 @@ export class EffectsChain {
 
   dispose(): void {
     this._chorusLfo.stop();
+    this._whammyNode?.disconnect();
   }
 }

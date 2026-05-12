@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from db.connection import close_client
-from routers import auth, presets
+from routers import auth, presets, midi_setups
 
 
 @asynccontextmanager
@@ -27,8 +27,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(auth.router,    prefix="/api")
-app.include_router(presets.router, prefix="/api")
+app.include_router(auth.router,        prefix="/api")
+app.include_router(presets.router,     prefix="/api")
+app.include_router(midi_setups.router, prefix="/api")
 
 
 @app.get("/healthz")

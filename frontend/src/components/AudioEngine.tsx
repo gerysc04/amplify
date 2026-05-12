@@ -3,18 +3,22 @@ import {
   AudioEngine as AudioEngineCore,
   type GateParams, type EqParams,
   type DelayParams, type ReverbParams, type ChorusParams,
+  type WahParams, type TransposeParams, type WhammyParams,
 } from '../lib/audio/AudioEngine';
 import { enumerateAudioDevices } from '../lib/audio/devices';
 import { fileCache } from '../lib/storage/FileCache';
 import { presetManager } from '../lib/storage/PresetManager';
 import { isAuthenticated } from '../lib/tone3000/client';
 import type { Tone } from '../lib/tone3000/types';
-import type { Preset, ToneRef } from '../types/audio';
+import { MidiManager } from '../lib/midi/MidiManager';
+import { midiSetupManager } from '../lib/storage/MidiSetupManager';
+import type { MidiAction, MidiSetup, Preset, ToneRef } from '../types/audio';
 import TopBar from './TopBar';
 import SignalChain from './SignalChain';
 import ToneBrowser, { type BrowseTarget } from './ToneBrowser';
 import PresetsModal from './PresetsModal';
 import SettingsModal from './SettingsModal';
+import MidiController from './MidiController';
 import styles from './AudioEngine.module.css';
 
 const EMPTY_REF: ToneRef = { filename: '', available: false };
@@ -35,11 +39,14 @@ export default function AudioEngine() {
   const [outputId, setOutputId] = useState(() => localStorage.getItem('amplify-output-device') ?? '');
 
   // Effects
-  const [gate,   setGate]   = useState<GateParams>  ({ enabled: true,  threshold: 0.02, attack: 0.003, release: 0.15 });
-  const [eq,     setEq]     = useState<EqParams>     ({ bass: 0, mid: 0, treble: 0 });
-  const [delay,  setDelay]  = useState<DelayParams>  ({ enabled: false, time: 0.3, feedback: 0.35, mix: 0.3 });
-  const [reverb, setReverb] = useState<ReverbParams> ({ enabled: false, mix: 0.25 });
-  const [chorus, setChorus] = useState<ChorusParams> ({ enabled: false, rate: 1.5, depth: 0.005, mix: 0.3 });
+  const [gate,    setGate]    = useState<GateParams>   ({ enabled: true,  threshold: 0.02, attack: 0.003, release: 0.15 });
+  const [eq,      setEq]      = useState<EqParams>      ({ bass: 0, mid: 0, treble: 0 });
+  const [wah,       setWah]       = useState<WahParams>       ({ enabled: false, frequency: 0.3, q: 10 });
+  const [transpose, setTranspose] = useState<TransposeParams> ({ semitones: 0 });
+  const [whammy,    setWhammy]    = useState<WhammyParams>    ({ enabled: false, mode: '+1oct', semitones: 12, expression: 0, mix: 1 });
+  const [delay,   setDelay]   = useState<DelayParams>   ({ enabled: false, time: 0.3, feedback: 0.35, mix: 0.3 });
+  const [reverb,  setReverb]  = useState<ReverbParams>  ({ enabled: false, mix: 0.25 });
+  const [chorus,  setChorus]  = useState<ChorusParams>  ({ enabled: false, rate: 1.5, depth: 0.005, mix: 0.3 });
 
   // Loaded tones
   const [namModel,   setNamModel]   = useState<ToneRef>(EMPTY_REF);
@@ -52,11 +59,17 @@ export default function AudioEngine() {
   const [cachedModels, setCachedModels] = useState<string[]>([]);
   const [cachedIrs,    setCachedIrs]    = useState<string[]>([]);
 
+  // MIDI
+  const [midiReady,   setMidiReady]   = useState(false);
+  const [midiSetups,  setMidiSetups]  = useState<MidiSetup[]>([]);
+  const midiRef = useRef<MidiManager | null>(null);
+
   // Modal state
   const [browseTarget,  setBrowseTarget]  = useState<BrowseTarget>('amp');
   const [showBrowse,    setShowBrowse]    = useState(false);
   const [showPresets,   setShowPresets]   = useState(false);
   const [showSettings,  setShowSettings]  = useState(false);
+  const [showMidi,      setShowMidi]      = useState(false);
   const [showSaveAs,    setShowSaveAs]    = useState(false);
   const [saveAsName,    setSaveAsName]    = useState('');
 
@@ -76,8 +89,34 @@ export default function AudioEngine() {
   useEffect(() => {
     getEngine();
     enumerateAudioDevices().then(({ inputs, outputs }) => { setInputs(inputs); setOutputs(outputs); });
-    setPresets(presetManager.list());
+    const all = presetManager.list();
+    setPresets(all);
     refreshCachedFiles();
+
+    // Restore last active preset (params only — files load after audio starts)
+    const lastId = localStorage.getItem('amplify-last-preset-id');
+    if (lastId) {
+      const last = all.find((p) => p.id === lastId);
+      if (last) {
+        const wh = { enabled: false, mode: '+1oct' as const, semitones: 12, expression: 0, mix: 1, ...(last.whammy ?? {}) };
+        setGain(last.gain ?? 0.5);
+        setVolume(last.volume ?? 0.8);
+        setGate(last.gate);
+        setEq(last.eq);
+        setTranspose(last.transpose ?? { semitones: 0 });
+        setWah(last.wah ?? { enabled: false, frequency: 0.3, q: 5 });
+        setWhammy(wh);
+        setDelay(last.delay);
+        setReverb(last.reverb);
+        setChorus(last.chorus);
+        setNamModel(last.namModel);
+        setCabIR(last.cabIR);
+        setIsFullRig(last.namModel.gearType === 'full-rig');
+        setActivePreset(last);
+        // Don't persist to localStorage again — just restoring
+      }
+    }
+
     return () => { engineRef.current?.stop(); engineRef.current?.nam.dispose(); };
   }, [getEngine, refreshCachedFiles]);
 
@@ -87,6 +126,23 @@ export default function AudioEngine() {
     window.addEventListener('tone3000-authed', handler);
     return () => window.removeEventListener('tone3000-authed', handler);
   }, []);
+
+  const dispatchMidiRef = useRef<(action: MidiAction) => void>(() => {});
+
+  // MIDI init
+  useEffect(() => {
+    const setups = midiSetupManager.list();
+    setMidiSetups(setups);
+
+    const mgr = new MidiManager();
+    midiRef.current = mgr;
+    const active = setups.find((s) => s.is_active);
+    if (active) mgr.setMappings(active.mappings);
+
+    mgr.init().then((ok) => setMidiReady(ok));
+    mgr.onAction((action) => dispatchMidiRef.current(action));
+    return () => mgr.dispose();
+  }, []); // eslint-disable-line
 
   // ---------------------------------------------------------------------------
   // Audio — auto-starts on first user gesture, mute toggles output gain
@@ -102,6 +158,27 @@ export default function AudioEngine() {
       setAudioReady(true);
       const { inputs, outputs } = await enumerateAudioDevices();
       setInputs(inputs); setOutputs(outputs);
+
+      // Now audio is ready — load files for the restored preset
+      const lastId = localStorage.getItem('amplify-last-preset-id');
+      if (lastId) {
+        const preset = presetManager.list().find((p) => p.id === lastId);
+        if (preset) {
+          // Apply audio engine params now that context exists
+          engine.setGain(preset.gain ?? 0.5);
+          engine.setOutputGain(preset.volume ?? 0.8);
+          engine.setGateParams(preset.gate);
+          engine.setEqParams(preset.eq);
+          // Load cached files silently
+          const loadRef = async (ref: typeof preset.namModel, apply: (f: File, m: typeof ref) => Promise<void>) => {
+            if (!ref.filename) return;
+            const cached = await fileCache.load(ref.filename);
+            if (cached) await apply(cached, ref).catch(() => {});
+          };
+          await loadRef(preset.namModel, applyModelFile);
+          if (preset.namModel.gearType !== 'full-rig') await loadRef(preset.cabIR, applyIrFile);
+        }
+      }
     } catch (err) {
       setError(`Could not start audio: ${err instanceof Error ? err.message : 'Unknown error'}`);
     }
@@ -124,8 +201,11 @@ export default function AudioEngine() {
   // Parameter handlers
   // ---------------------------------------------------------------------------
 
-  const handleGainChange   = useCallback((v: number)     => { setGain(v);   engineRef.current?.setGain(v); }, []);
-  const handleVolumeChange = useCallback((v: number)     => { setVolume(v); engineRef.current?.setOutputGain(v); }, []);
+  const handleGainChange   = useCallback((v: number)      => { setGain(v);   engineRef.current?.setGain(v); }, []);
+  const handleVolumeChange = useCallback((v: number)      => { setVolume(v); engineRef.current?.setOutputGain(v); }, []);
+  const handleWahChange       = useCallback((p: WahParams)       => { setWah(p);       engineRef.current?.setWahParams(p); }, []);
+  const handleTransposeChange = useCallback((p: TransposeParams) => { setTranspose(p); engineRef.current?.setTransposeParams(p); }, []);
+  const handleWhammyChange    = useCallback((p: WhammyParams)    => { setWhammy(p);    engineRef.current?.setWhammyParams(p); }, []);
   const handleGateChange  = useCallback((p: GateParams)  => { setGate(p);   engineRef.current?.setGateParams(p); }, []);
   const handleEqChange    = useCallback((p: EqParams)    => { setEq(p);     engineRef.current?.setEqParams(p); }, []);
   const handleDelayChange = useCallback((p: DelayParams) => { setDelay(p);  engineRef.current?.setDelayParams(p); }, []);
@@ -205,44 +285,76 @@ export default function AudioEngine() {
     createdAt: Date.now(),
     namModel,
     cabIR,
-    gain, gate, eq, delay, reverb, chorus,
-  }), [namModel, cabIR, gain, gate, eq, delay, reverb, chorus]);
+    gain, volume, gate, eq, transpose, wah, whammy, delay, reverb, chorus,
+  }), [namModel, cabIR, gain, volume, gate, eq, transpose, wah, whammy, delay, reverb, chorus]);
+
+  const activatePreset = useCallback((preset: Preset) => {
+    setActivePreset(preset);
+    localStorage.setItem('amplify-last-preset-id', preset.id);
+  }, []);
 
   const handleSavePreset = useCallback((name: string) => {
     const preset = snapshotPreset(name);
     presetManager.add(preset);
     setPresets(presetManager.list());
-    setActivePreset(preset);
-  }, [snapshotPreset]);
+    activatePreset(preset);
+  }, [snapshotPreset, activatePreset]);
 
   const handleUpdatePreset = useCallback(() => {
     if (!activePreset) return;
     const updated = snapshotPreset(activePreset.name, activePreset.id);
     presetManager.update(activePreset.id, updated);
-    setActivePreset(updated);
+    activatePreset(updated);
     setPresets(presetManager.list());
-  }, [activePreset, snapshotPreset]);
+  }, [activePreset, snapshotPreset, activatePreset]);
 
   const handleLoadPreset = useCallback(async (preset: Preset) => {
-    setGain(preset.gain);       engineRef.current?.setGain(preset.gain);
-    setGate(preset.gate);       engineRef.current?.setGateParams(preset.gate);
-    setEq(preset.eq);           engineRef.current?.setEqParams(preset.eq);
-    setDelay(preset.delay);     engineRef.current?.setDelayParams(preset.delay);
-    setReverb(preset.reverb);   engineRef.current?.setReverbParams(preset.reverb);
-    setChorus(preset.chorus);   engineRef.current?.setChorusParams(preset.chorus);
+    // Merge with defaults — old presets may be missing newer fields
+    const g   = preset.gain   ?? 0.5;
+    const vol = preset.volume ?? 0.8;
+    const tr  = preset.transpose ?? { semitones: 0 };
+    const w   = preset.wah    ?? { enabled: false, frequency: 0.3, q: 5 };
+    const wh  = { enabled: false, mode: '+1oct' as const, semitones: 12, expression: 0, mix: 1, ...(preset.whammy ?? {}) };
+
+    setGain(g);       engineRef.current?.setGain(g);
+    setVolume(vol);   engineRef.current?.setOutputGain(vol);
+    setGate(preset.gate);   engineRef.current?.setGateParams(preset.gate);
+    setEq(preset.eq);       engineRef.current?.setEqParams(preset.eq);
+    setTranspose(tr);       engineRef.current?.setTransposeParams(tr);
+    setWah(w);              engineRef.current?.setWahParams(w);
+    setWhammy(wh);          engineRef.current?.setWhammyParams(wh);
+    setDelay(preset.delay);   engineRef.current?.setDelayParams(preset.delay);
+    setReverb(preset.reverb); engineRef.current?.setReverbParams(preset.reverb);
+    setChorus(preset.chorus); engineRef.current?.setChorusParams(preset.chorus);
     setNamModel(preset.namModel);
     setCabIR(preset.cabIR);
     setIsFullRig(preset.namModel.gearType === 'full-rig');
-    setActivePreset(preset);
+    activatePreset(preset);
     setShowPresets(false);
 
-    if (preset.namModel.filename) {
-      const cached = await fileCache.load(preset.namModel.filename);
-      if (cached) await applyModelFile(cached, preset.namModel);
-    }
-    if (preset.cabIR.filename) {
-      const cached = await fileCache.load(preset.cabIR.filename);
-      if (cached) await applyIrFile(cached, preset.cabIR);
+    const loadRef = async (ref: typeof preset.namModel, apply: (f: File, m: typeof ref) => Promise<void>) => {
+      if (!ref.filename) return;
+      // 1. Try IndexedDB cache
+      const cached = await fileCache.load(ref.filename);
+      if (cached) { await apply(cached, ref); return; }
+      // 2. Re-fetch from tone3000 if we have the toneId
+      if (ref.toneId && isAuthenticated()) {
+        try {
+          const { downloadToneFile } = await import('../lib/tone3000/client');
+          const ext  = ref.gearType === 'ir' ? '.wav' : '.nam';
+          const file = await downloadToneFile(ref.toneId, ref.filename || `tone_${ref.toneId}${ext}`);
+          await apply(file, ref);
+        } catch {
+          setError(`Could not re-fetch "${ref.title ?? ref.filename}" — open Browse tones to reload it.`);
+        }
+      } else {
+        setError(`"${ref.title ?? ref.filename}" not in cache — load it from Browse tones to use this preset.`);
+      }
+    };
+
+    await loadRef(preset.namModel, applyModelFile);
+    if (preset.namModel.gearType !== 'full-rig') {
+      await loadRef(preset.cabIR, applyIrFile);
     }
   }, [applyModelFile, applyIrFile]);
 
@@ -279,6 +391,76 @@ export default function AudioEngine() {
     await refreshCachedFiles();
   }, [refreshCachedFiles]);
 
+  // ---------------------------------------------------------------------------
+  // MIDI action dispatch
+  // ---------------------------------------------------------------------------
+
+  const dispatchMidiAction = useCallback((action: MidiAction) => {
+    switch (action.type) {
+      case 'toggle':
+        if (action.target === 'gate')   setGate((p)   => { const n = { ...p, enabled: !p.enabled }; engineRef.current?.setGateParams(n);    return n; });
+        if (action.target === 'delay')  setDelay((p)  => { const n = { ...p, enabled: !p.enabled }; engineRef.current?.setDelayParams(n);   return n; });
+        if (action.target === 'reverb') setReverb((p) => { const n = { ...p, enabled: !p.enabled }; engineRef.current?.setReverbParams(n);  return n; });
+        if (action.target === 'chorus') setChorus((p) => { const n = { ...p, enabled: !p.enabled }; engineRef.current?.setChorusParams(n);  return n; });
+        if (action.target === 'wah')    setWah((p)    => { const n = { ...p, enabled: !p.enabled }; engineRef.current?.setWahParams(n);     return n; });
+        if (action.target === 'whammy') setWhammy((p) => { const n = { ...p, enabled: !p.enabled }; engineRef.current?.setWhammyParams(n);  return n; });
+        break;
+      case 'set_param': {
+        const v = action.min; // MidiManager resolves [min,max] to a single 0-1 value stored in min
+        if (action.target === 'gain')            handleGainChange(v);
+        if (action.target === 'volume')          handleVolumeChange(v);
+        if (action.target === 'wah.frequency')    setWah((p)      => { const n = { ...p, frequency: v, enabled: true };                engineRef.current?.setWahParams(n);       return n; });
+        if (action.target === 'whammy.expression') setWhammy((p)  => { const n = { ...p, expression: v, enabled: p.enabled }; engineRef.current?.setWhammyParams(n); return n; });
+        if (action.target === 'whammy.semitones')  setWhammy((p)  => { const n = { ...p, semitones: v * 48 - 24 };             engineRef.current?.setWhammyParams(n); return n; });
+        if (action.target === 'transpose.semitones') { const n = { semitones: Math.round(v * 48 - 24) }; setTranspose(n); engineRef.current?.setTransposeParams(n); }
+        if (action.target === 'eq.bass')         setEq((p) => { const n = { ...p, bass:   v * 24 - 12 }; engineRef.current?.setEqParams(n);    return n; });
+        if (action.target === 'eq.mid')          setEq((p) => { const n = { ...p, mid:    v * 24 - 12 }; engineRef.current?.setEqParams(n);    return n; });
+        if (action.target === 'eq.treble')       setEq((p) => { const n = { ...p, treble: v * 24 - 12 }; engineRef.current?.setEqParams(n);    return n; });
+        if (action.target === 'reverb.mix')      setReverb((p) => { const n = { ...p, mix: v };          engineRef.current?.setReverbParams(n); return n; });
+        if (action.target === 'delay.mix')       setDelay((p)  => { const n = { ...p, mix: v };          engineRef.current?.setDelayParams(n);  return n; });
+        if (action.target === 'delay.time')      setDelay((p)  => { const n = { ...p, time: 0.05 + v * 0.55 }; engineRef.current?.setDelayParams(n); return n; });
+        if (action.target === 'delay.feedback')  setDelay((p)  => { const n = { ...p, feedback: v * 0.85 };    engineRef.current?.setDelayParams(n); return n; });
+        if (action.target === 'chorus.rate')     setChorus((p) => { const n = { ...p, rate: 0.1 + v * 3.9 };  engineRef.current?.setChorusParams(n); return n; });
+        if (action.target === 'chorus.depth')    setChorus((p) => { const n = { ...p, depth: 0.001 + v * 0.014 }; engineRef.current?.setChorusParams(n); return n; });
+        if (action.target === 'chorus.mix')      setChorus((p) => { const n = { ...p, mix: v };          engineRef.current?.setChorusParams(n); return n; });
+        if (action.target === 'gate.threshold')  setGate((p)   => { const n = { ...p, threshold: 0.001 + v * 0.099 }; engineRef.current?.setGateParams(n); return n; });
+        break;
+      }
+      case 'load_preset': {
+        const p = presets.find((pr) => pr.id === action.preset_id);
+        if (p) handleLoadPreset(p);
+        break;
+      }
+    }
+  }, [handleGainChange, handleVolumeChange, handleLoadPreset, presets]);
+
+  // Keep MIDI handler ref in sync so the MidiManager always calls the latest version
+  useEffect(() => { dispatchMidiRef.current = dispatchMidiAction; }, [dispatchMidiAction]);
+
+  // MIDI setup management
+  const handleSaveMidiSetup = useCallback((setup: MidiSetup) => {
+    midiSetupManager.save(setup);
+    setMidiSetups((prev) => prev.map((s) => s.id === setup.id ? setup : s));
+    if (setup.is_active) midiRef.current?.setMappings(setup.mappings);
+  }, []);
+
+  const handleDeleteMidiSetup = useCallback((id: string) => {
+    midiSetupManager.remove(id);
+    setMidiSetups((prev) => prev.filter((s) => s.id !== id));
+  }, []);
+
+  const handleActivateMidiSetup = useCallback((id: string) => {
+    const updated = midiSetupManager.activate(id);
+    setMidiSetups(updated);
+    const active = updated.find((s) => s.is_active);
+    if (active) midiRef.current?.setMappings(active.mappings);
+  }, []);
+
+  const handleCreateMidiSetup = useCallback((name: string) => {
+    const created = midiSetupManager.create(name);
+    setMidiSetups((prev) => [...prev, created]);
+  }, []);
+
   // Save-as flow
   const openSaveAs = useCallback(() => {
     setSaveAsName(activePreset?.name ?? '');
@@ -300,6 +482,8 @@ export default function AudioEngine() {
         onOpenPresets={() => setShowPresets(true)}
         onOpenBrowse={() => handleOpenBrowse('amp')}
         onOpenSettings={() => setShowSettings(true)}
+        onOpenMidi={() => setShowMidi(true)}
+        midiReady={midiReady}
         onSavePreset={openSaveAs}
         onUpdatePreset={handleUpdatePreset}
       />
@@ -309,12 +493,14 @@ export default function AudioEngine() {
         cabIR={cabIR}
         isFullRig={isFullRig}
         gain={gain}     volume={volume}
-        gate={gate}     eq={eq}     delay={delay}
-        reverb={reverb} chorus={chorus}
+        gate={gate}     eq={eq}
+        wah={wah}       transpose={transpose}  whammy={whammy}
+        delay={delay}   reverb={reverb} chorus={chorus}
         onGainChange={handleGainChange}
         onVolumeChange={handleVolumeChange}
-        onGate={handleGateChange}   onEq={handleEqChange}
-        onDelay={handleDelayChange} onReverb={handleReverbChange}
+        onGate={handleGateChange}     onEq={handleEqChange}
+        onWah={handleWahChange}       onTranspose={handleTransposeChange}  onWhammy={handleWhammyChange}
+        onDelay={handleDelayChange}   onReverb={handleReverbChange}
         onChorus={handleChorusChange}
         onClickAmp={() => handleOpenBrowse('amp')}
         onClickCab={() => handleOpenBrowse('ir')}
@@ -340,6 +526,19 @@ export default function AudioEngine() {
           onExport={handleExportPreset}
           onImport={handleImportPreset}
           onClose={() => setShowPresets(false)}
+        />
+      )}
+
+      {showMidi && (
+        <MidiController
+          setups={midiSetups}
+          midiManager={midiRef.current}
+          midiReady={midiReady}
+          onSaveSetup={handleSaveMidiSetup}
+          onDeleteSetup={handleDeleteMidiSetup}
+          onActivate={handleActivateMidiSetup}
+          onCreateSetup={handleCreateMidiSetup}
+          onClose={() => setShowMidi(false)}
         />
       )}
 

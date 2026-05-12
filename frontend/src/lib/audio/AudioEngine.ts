@@ -1,7 +1,8 @@
 import { NamProcessor } from './NamProcessor';
 import { EffectsChain, type DelayParams, type ReverbParams, type ChorusParams } from './EffectsChain';
+import type { WahParams, WhammyParams, TransposeParams } from '../../types/audio';
 
-export type { DelayParams, ReverbParams, ChorusParams };
+export type { DelayParams, ReverbParams, ChorusParams, WahParams, WhammyParams, TransposeParams };
 
 // setSinkId is Chrome 110+ — not yet in the standard TS dom lib.
 type AudioContextWithSink = AudioContext & {
@@ -40,11 +41,24 @@ export class AudioEngine {
 
   private _gain        = 0.5;
   private _irLoaded    = false;
-  private _gateParams:  GateParams  = { enabled: true, threshold: 0.02, attack: 0.003, release: 0.15 };
-  private _eqParams:    EqParams    = { bass: 0, mid: 0, treble: 0 };
-  private _delayParams: DelayParams = { enabled: false, time: 0.3, feedback: 0.35, mix: 0.3 };
+  private _gateParams:   GateParams   = { enabled: true,  threshold: 0.02, attack: 0.003, release: 0.15 };
+  private _eqParams:     EqParams     = { bass: 0, mid: 0, treble: 0 };
+  private _wahParams:       WahParams       = { enabled: false, frequency: 0.3, q: 10 };
+  private _transposeParams: TransposeParams = { semitones: 0 };
+  private _whammyParams:    WhammyParams    = { enabled: false, semitones: 0, mix: 1 };
+
+  // Transpose — pre-amp pitch shifter with dry bypass
+  private _transposeNode: AudioWorkletNode | null = null;
+  private _transposeDry:  GainNode         | null = null;
+  private _transposeWet:  GainNode         | null = null;
+  private _delayParams:  DelayParams  = { enabled: false, time: 0.3, feedback: 0.35, mix: 0.3 };
   private _reverbParams: ReverbParams = { enabled: false, mix: 0.25 };
   private _chorusParams: ChorusParams = { enabled: false, rate: 1.5, depth: 0.005, mix: 0.3 };
+
+  // Wah — high-Q bandpass mixed with dry signal
+  private _wahFilter: BiquadFilterNode | null = null;
+  private _wahDry:    GainNode         | null = null;
+  private _wahWet:    GainNode         | null = null;
 
   readonly nam: NamProcessor;
 
@@ -78,10 +92,11 @@ export class AudioEngine {
     if (this._ctx.state === 'suspended') await this._ctx.resume();
     if (options.outputDeviceId) await this.setOutputDevice(options.outputDeviceId);
 
-    // Load both worklets in parallel
+    // Load worklets in parallel (whammy failure is non-fatal)
     await Promise.all([
       this._ctx.audioWorklet.addModule('/worklets/gate-processor.js'),
       this._ctx.audioWorklet.addModule('/worklets/nam-processor.js'),
+      this._ctx.audioWorklet.addModule('/worklets/whammy-processor.js').catch(() => {}),
     ]);
 
     // --- Source ---
@@ -128,22 +143,55 @@ export class AudioEngine {
     this._cabIR.normalize = false;
     this._cabIR.buffer    = makeDirac(this._ctx);
 
+    // --- Wah — high-Q bandpass (wet) mixed with dry; sum goes to transpose/gate ---
+    this._wahFilter = this._ctx.createBiquadFilter();
+    this._wahFilter.type            = 'bandpass';
+    this._wahFilter.frequency.value = 700;
+    this._wahFilter.Q.value         = 8;
+    this._wahDry = this._ctx.createGain(); this._wahDry.gain.value = 1;
+    this._wahWet = this._ctx.createGain(); this._wahWet.gain.value = 0;
+    this._applyWahParams();
+
     // --- Post-cab effects ---
     this._effects = new EffectsChain(this._ctx);
+    this._effects.initWhammy();
     this._effects.setDelay(this._delayParams);
     this._effects.setReverb(this._reverbParams);
     this._effects.setChorus(this._chorusParams);
+    this._effects.setWhammy(this._whammyParams);
 
     // --- Output ---
     this._outputGain = this._ctx.createGain();
     this._outputGain.gain.value = 0.7;
 
     // --- Signal chain ---
-    // source → monoSum → analyser → gate → preGain → NAM
+    // Transpose — dry bypass always passes signal; wet path (worklet) only when semitones != 0
+    this._transposeDry = this._ctx.createGain(); this._transposeDry.gain.value = 1;
+    this._transposeWet = this._ctx.createGain(); this._transposeWet.gain.value = 0;
+    try {
+      this._transposeNode = new AudioWorkletNode(this._ctx, 'whammy-processor');
+      (this._transposeNode.parameters as AudioParamMap).get('mix')?.setValueAtTime(1, 0);
+    } catch { this._transposeNode = null; }
+
+    // source → monoSum → analyser → wah → transposeBypass/transposeNode → gate → preGain → NAM
     //   → bass → mid → treble → cabIR → effects → outputGain → speakers
+    // source → monoSum → analyser → wahDry ─────────────────── wahSum → transpose → gate
+    //                              └→ wahFilter → wahWet ───┘
+    const wahSum = this._ctx.createGain();
     this._source.connect(monoSum);
     monoSum.connect(this._analyser);
-    this._analyser.connect(this._gate);
+    this._analyser.connect(this._wahDry!);
+    this._analyser.connect(this._wahFilter!);
+    this._wahFilter!.connect(this._wahWet!);
+    this._wahDry!.connect(wahSum);
+    this._wahWet!.connect(wahSum);
+    wahSum.connect(this._transposeDry!);
+    this._transposeDry!.connect(this._gate!);
+    if (this._transposeNode) {
+      wahSum.connect(this._transposeNode);
+      this._transposeNode.connect(this._transposeWet!);
+      this._transposeWet!.connect(this._gate!);
+    }
     this._gate.connect(this._preGain);
     this._preGain.connect(this._nam);
     this._nam.connect(this._bassFilter);
@@ -175,6 +223,12 @@ export class AudioEngine {
     this._cabIR        = null;
     this._effects      = null;
     this._outputGain   = null;
+    this._wahFilter = null;
+    this._wahDry    = null;
+    this._wahWet    = null;
+    this._transposeNode = null;
+    this._transposeDry  = null;
+    this._transposeWet  = null;
     this._irLoaded     = false;
   }
 
@@ -236,6 +290,29 @@ export class AudioEngine {
     this._effects?.setChorus(params);
   }
 
+  setWahParams(params: WahParams): void {
+    this._wahParams = params;
+    this._applyWahParams();
+  }
+
+  setTransposeParams({ semitones }: TransposeParams): void {
+    this._transposeParams = { semitones };
+    if (!this._ctx || !this._transposeDry || !this._transposeWet) return;
+    const t      = this._ctx.currentTime;
+    const active = semitones !== 0 && this._transposeNode !== null;
+    this._transposeDry.gain.setTargetAtTime(active ? 0 : 1, t, 0.02);
+    this._transposeWet.gain.setTargetAtTime(active ? 1 : 0, t, 0.02);
+    if (this._transposeNode) {
+      (this._transposeNode.parameters as AudioParamMap)
+        .get('semitones')?.setTargetAtTime(semitones, t, 0.02);
+    }
+  }
+
+  setWhammyParams(params: WhammyParams): void {
+    this._whammyParams = params;
+    this._effects?.setWhammy(params);
+  }
+
   setOutputGain(value: number): void {
     if (!this._ctx || !this._outputGain) return;
     this._outputGain.gain.setTargetAtTime(value * 0.7, this._ctx.currentTime, 0.02);
@@ -254,6 +331,18 @@ export class AudioEngine {
     if (!this._gate) return;
     const { enabled, threshold, attack, release } = this._gateParams;
     this._gate.port.postMessage({ type: 'params', enabled, threshold, attack, release });
+  }
+
+  private _applyWahParams(): void {
+    if (!this._ctx || !this._wahFilter || !this._wahDry || !this._wahWet) return;
+    const { enabled, frequency, q } = this._wahParams;
+    const hz = 300 + frequency * 1900; // 300–2200 Hz (CryBaby range)
+    const t  = this._ctx.currentTime;
+    this._wahFilter.frequency.setTargetAtTime(hz, t, 0.005);
+    this._wahFilter.Q.value = Math.max(q, 1);
+    // Wah: cut dry, pass only the resonant bandpass when enabled
+    this._wahDry.gain.setTargetAtTime(enabled ? 0   : 1, t, 0.01);
+    this._wahWet.gain.setTargetAtTime(enabled ? 1.5 : 0, t, 0.01);
   }
 
   private _applyEqParams(): void {
