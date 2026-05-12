@@ -40,9 +40,17 @@ amplify/
 ### MIDI
 - **Web MIDI API** — connects to pedalboards and controllers
 
+### Tone library
+- **tone3000 API** — official OAuth v1 API for browsing and fetching NAM models
+- Popup Select Flow: user picks a tone in a tone3000 popup, tone ID + model file returned to app
+- Load Tone Flow: presets store tone3000 `tone_id`; re-fetched on demand with auth check
+- Amplify is an API client only — files flow from tone3000 → user's browser, never our server
+- Any public tone works (CC0, CC BY, all-rights-reserved) — licensing is between creator and tone3000
+- Publishable key (`t3k_pub_...`) is safe to ship in frontend code (PKCE, no secret)
+
 ### Storage
 - **localStorage** — preset JSON metadata
-- **IndexedDB** — NAM model files, cab IR files (binary blobs)
+- **IndexedDB** — NAM model files, cab IR files (binary blobs, cached after first fetch)
 
 ### Deployment
 - **VPS** (self-hosted)
@@ -207,9 +215,14 @@ interface Preset {
 
 ---
 
-## Tone3000 policy
-Do NOT cache or redistribute models from tone3000.com — violates their ToS.
-Show a "Get more amps →" button that opens the site in a new tab. Users download and upload manually.
+## tone3000 integration policy
+- Use the **official tone3000 OAuth v1 API** — never scrape or use undocumented endpoints
+- Amplify does NOT redistribute model files — they are fetched by the user's browser directly from tone3000
+- Any public tone on tone3000 is fair game regardless of its creative license — licensing is tone3000's concern
+- Preset format stores `tone3000Id` (number); the Load Tone Flow re-fetches and validates access on load
+- Model files are cached in IndexedDB after the first fetch for offline/low-latency use
+- If a tone is deleted or goes private, the Load Tone Flow redirects to tone3000's replacement picker
+- The publishable key is committed to the repo — it is designed to be public (like Stripe's pk_live_ key)
 
 ---
 
@@ -257,11 +270,13 @@ Ship with these using bundled models:
 - Chorus (LFO-modulated short delay)
 - All effects: wet/dry mix + on/off bypass
 
-### Phase 4 — UI & Presets
-- Preset save/load/export/import (localStorage metadata + IndexedDB files)
-- Default bundled presets (5 starting points)
-- Model + IR library panel (list cached files, delete, re-upload)
-- "Get more amps →" link to tone3000.com
+### Phase 4 — Presets + tone3000 Integration
+- Preset save/load/export/import (localStorage metadata + IndexedDB file cache)
+- tone3000 popup Select Flow: "Browse Amps" button opens tone picker, model loads automatically
+- tone3000 Load Tone Flow: presets with a `tone3000Id` re-fetch on load with auth check
+- Preset format: stores `tone3000Id` alongside local filename fallback
+- Cached file library: list IndexedDB-cached models/IRs, delete individual files
+- Users can still upload local .nam/.wav files — tone3000 is additive, not required
 
 ### Phase 5 — MIDI
 - Web MIDI API (requestMIDIAccess)
