@@ -236,6 +236,11 @@ export class AudioEngine {
     this._effects?.setChorus(params);
   }
 
+  setOutputGain(value: number): void {
+    if (!this._ctx || !this._outputGain) return;
+    this._outputGain.gain.setTargetAtTime(value * 0.7, this._ctx.currentTime, 0.02);
+  }
+
   async setOutputDevice(deviceId: string): Promise<void> {
     if (!this._ctx?.setSinkId) return;
     await this._ctx.setSinkId(deviceId);

@@ -21,7 +21,7 @@
 
 .valueArc {
   fill: none;
-  stroke: #ff6b35;
+  stroke: #c8c8c8;
   stroke-width: 4;
   stroke-linecap: round;
 }
@@ -34,7 +34,7 @@
 }
 
 .dot {
-  fill: #ff6b35;
+  fill: #c8c8c8;
   filter: drop-shadow(0 0 3px rgba(255, 107, 53, 0.6));
 }
 

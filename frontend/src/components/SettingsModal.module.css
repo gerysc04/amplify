@@ -1,0 +1,96 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sectionTitle {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #444;
+  margin: 0 0 4px;
+}
+
+.label {
+  font-size: 11px;
+  color: #555;
+}
+
+.select {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  color: #ccc;
+  font-size: 12px;
+  padding: 6px 10px;
+  outline: none;
+  cursor: pointer;
+}
+.select:focus { border-color: #444; }
+
+.hint {
+  font-size: 11px;
+  color: #3a3a3a;
+  margin: 0;
+}
+
+.importRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.importBtn {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  color: #888;
+  font-size: 11px;
+  padding: 6px 14px;
+  cursor: pointer;
+}
+.importBtn:hover { border-color: #444; color: #ccc; }
+
+.cacheRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.cacheName {
+  font-size: 11px;
+  color: #555;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cacheTag {
+  font-size: 9px;
+  color: #333;
+  background: #1a1a1a;
+  border: 1px solid #222;
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+.deleteBtn {
+  background: transparent;
+  border: none;
+  color: #3a3a3a;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+.deleteBtn:hover { color: #888; }

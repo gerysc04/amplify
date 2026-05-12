@@ -42,7 +42,7 @@
 
 .select:focus {
   outline: none;
-  border-color: #ff6b35;
+  border-color: #c8c8c8;
 }
 
 .select:disabled {

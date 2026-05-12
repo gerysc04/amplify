@@ -1,0 +1,133 @@
+.bar {
+  height: 52px;
+  background: #111;
+  border-bottom: 1px solid #1e1e1e;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  gap: 16px;
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+.logo {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: #c8c8c8;
+  flex-shrink: 0;
+}
+
+.divider {
+  width: 1px;
+  height: 24px;
+  background: #222;
+  flex-shrink: 0;
+}
+
+/* Preset section */
+.presetSection {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.presetBtn {
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  color: #aaa;
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+  text-align: left;
+}
+.presetBtn:hover { border-color: #444; color: #ddd; }
+
+.presetActive {
+  color: #7ec87e;
+  border-color: #2a3d2a;
+}
+
+.saveBtn {
+  background: transparent;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  color: #666;
+  font-size: 11px;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.saveBtn:hover { border-color: #444; color: #aaa; }
+.saveBtn:disabled { opacity: 0.35; cursor: default; }
+
+/* Nav buttons */
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.navBtn {
+  background: transparent;
+  border: none;
+  color: #555;
+  font-size: 11px;
+  padding: 5px 10px;
+  cursor: pointer;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+.navBtn:hover { background: #1a1a1a; color: #aaa; }
+.navBtnActive { background: #1a1a1a; color: #ccc; }
+
+/* Start/Stop */
+.startBtn {
+  background: #c8c8c8;
+  border: none;
+  border-radius: 4px;
+  color: #111;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  padding: 6px 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.startBtn:hover { background: #aaaaaa; }
+
+.stopBtn {
+  background: #1e1e1e;
+  border: 1px solid #333;
+  border-radius: 4px;
+  color: #888;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  padding: 6px 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.stopBtn:hover { background: #2a2a2a; }
+
+.meter {
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.waitingHint {
+  font-size: 10px;
+  color: #333;
+  white-space: nowrap;
+  flex-shrink: 0;
+}

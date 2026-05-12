@@ -1,7 +1,6 @@
-.main {
+.app {
   min-height: 100svh;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
+  flex-direction: column;
+  background: #0a0a0a;
 }

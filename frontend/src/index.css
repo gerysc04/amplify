@@ -12,7 +12,7 @@
   --border: #2a2a2a;
   --text: #dedede;
   --text-muted: #666;
-  --accent: #ff6b35;
+  --accent: #c8c8c8;
 }
 
 html,
@@ -32,5 +32,5 @@ body {
 }
 
 ::selection {
-  background: rgba(255, 107, 53, 0.25);
+  background: rgba(200, 200, 200, 0.2);
 }

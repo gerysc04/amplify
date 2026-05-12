@@ -1,0 +1,150 @@
+.chain {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  padding: 32px 40px;
+  overflow-x: auto;
+}
+.chain::-webkit-scrollbar { height: 4px; }
+.chain::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
+
+/* Arrow between slots */
+.arrow {
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  color: #2a2a2a;
+  font-size: 18px;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+/* Shared slot base */
+.slot {
+  background: #111;
+  border: 1px solid #1e1e1e;
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: border-color 0.15s;
+}
+
+/* ── Amp slot — horizontal: SVG left, knobs right ── */
+.ampSlot {
+  composes: slot;
+  display: flex;
+  flex-direction: row;
+  cursor: pointer;
+}
+.ampSlot:hover { border-color: #333; }
+
+.ampLeft {
+  width: 140px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  background: #0d0d0d;
+  border-right: 1px solid #1a1a1a;
+}
+
+.ampVisual {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 12px;
+}
+
+.ampInfo {
+  padding: 8px 10px;
+  border-top: 1px solid #1a1a1a;
+}
+
+.ampKnobs {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  padding: 10px 12px;
+  align-content: center;
+}
+
+/* ── Cab slot — compact vertical ── */
+.cabSlot {
+  composes: slot;
+  width: 120px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+}
+.cabSlot:hover { border-color: #333; }
+
+.cabVisual {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 12px;
+  flex: 1;
+}
+
+/* ── Gate slot ── */
+.gateSlot {
+  composes: slot;
+  width: 120px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+
+.gateHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.gateLabel {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #333;
+}
+
+/* ── Effects slot ── */
+.effectsSlot {
+  composes: slot;
+  min-width: 380px;
+}
+
+.effectsSlotInner {
+  padding: 10px 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Shared label/name inside slots */
+.slotLabel {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #333;
+}
+
+.slotName {
+  font-size: 11px;
+  color: #777;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+.slotEmpty {
+  font-size: 10px;
+  color: #2a2a2a;
+  margin-top: 2px;
+}

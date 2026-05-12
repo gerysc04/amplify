@@ -20,13 +20,13 @@ export default function App() {
   }, []);
 
   return (
-    <main className={styles.main}>
+    <div className={styles.app}>
       {authError && (
-        <p style={{ color: '#e53935', fontSize: 12, marginBottom: 8 }}>
+        <p style={{ color: '#e53935', fontSize: 12, padding: '8px 20px', margin: 0 }}>
           tone3000 login failed: {authError}
         </p>
       )}
       <AudioEngine />
-    </main>
+    </div>
   );
 }

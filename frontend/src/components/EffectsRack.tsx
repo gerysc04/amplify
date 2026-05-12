@@ -1,5 +1,5 @@
 import Knob from './knobs/Knob';
-import type { GateParams, DelayParams, ReverbParams, ChorusParams } from '../lib/audio/AudioEngine';
+import type { GateParams, EqParams, DelayParams, ReverbParams, ChorusParams } from '../lib/audio/AudioEngine';
 import styles from './EffectsRack.module.css';
 
 // ---- value↔param mapping helpers ----------------------------------------
@@ -39,22 +39,31 @@ function Toggle({ on, onClick }: ToggleProps) {
 
 // ---- Main component -------------------------------------------------------
 
+// EQ: ±12 dB
+const dbToKnob = (db: number) => (db + 12) / 24;
+const knobToDb = (k: number)  => k * 24 - 12;
+
 interface Props {
-  gate:    GateParams;
-  onGate:  (p: GateParams)   => void;
-  delay:   DelayParams;
-  onDelay: (p: DelayParams)  => void;
-  reverb:  ReverbParams;
-  onReverb:(p: ReverbParams) => void;
-  chorus:  ChorusParams;
-  onChorus:(p: ChorusParams) => void;
+  gate:     GateParams;
+  onGate:   (p: GateParams)   => void;
+  eq:       EqParams;
+  onEq:     (p: EqParams)     => void;
+  delay:    DelayParams;
+  onDelay:  (p: DelayParams)  => void;
+  reverb:   ReverbParams;
+  onReverb: (p: ReverbParams) => void;
+  chorus:   ChorusParams;
+  onChorus: (p: ChorusParams) => void;
+  hideGate?: boolean;
+  hideEq?:   boolean;
 }
 
-export default function EffectsRack({ gate, onGate, delay, onDelay, reverb, onReverb, chorus, onChorus }: Props) {
+export default function EffectsRack({ gate, onGate, eq, onEq, delay, onDelay, reverb, onReverb, chorus, onChorus, hideGate, hideEq }: Props) {
   return (
     <div className={styles.rack}>
 
       {/* ---- GATE ---- */}
+      {!hideGate && (
       <div className={styles.effect}>
         <div className={styles.header}>
           <Toggle on={gate.enabled} onClick={() => onGate({ ...gate, enabled: !gate.enabled })} />
@@ -69,6 +78,19 @@ export default function EffectsRack({ gate, onGate, delay, onDelay, reverb, onRe
           />
         </div>
       </div>
+      )}
+
+      {/* ---- EQ ---- */}
+      {!hideEq && <div className={styles.effect}>
+        <div className={styles.header}>
+          <span className={styles.name}>EQ</span>
+        </div>
+        <div className={styles.knobs}>
+          <Knob label="Bass"   value={dbToKnob(eq.bass)}   onChange={(k) => onEq({ ...eq, bass:   knobToDb(k) })} defaultValue={0.5} />
+          <Knob label="Mid"    value={dbToKnob(eq.mid)}    onChange={(k) => onEq({ ...eq, mid:    knobToDb(k) })} defaultValue={0.5} />
+          <Knob label="Treble" value={dbToKnob(eq.treble)} onChange={(k) => onEq({ ...eq, treble: knobToDb(k) })} defaultValue={0.5} />
+        </div>
+      </div>}
 
       {/* ---- DELAY ---- */}
       <div className={styles.effect}>

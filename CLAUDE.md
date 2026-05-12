@@ -361,11 +361,12 @@ backend/
 - Rust pitch shifting compiled to WASM, runs inside AudioWorklet
 - Semitones knob (−12 to +12), optional formant preservation
 
-### Phase 10 — Pedal Chain (Bias FX-style)
-- NAM pedal captures from tone3000 (`gears=pedal`)
-- Configurable pre-amp and post-amp pedal slots
-- Each slot is an AudioWorkletNode running a .nam pedal model
-- Drag-and-drop slot reordering
+### Phase 10 — Full Signal Chain Builder (Bias FX-style)
+- Drag-and-drop signal chain builder: multiple amps, cabs, pedals per preset
+- NAM pedal captures from tone3000 (`gears=pedal`) as AudioWorkletNodes
+- Configurable pre-amp and post-amp pedal slots, freely reorderable
+- Multiple amp/cab slots possible (e.g. parallel rigs or amp switching)
+- Each slot clickable to browse/replace; drag handles to reorder
 - `preset_pedals` table in DB stores slot order, tone3000_id, enabled state
 
 ---

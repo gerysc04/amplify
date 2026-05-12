@@ -1,11 +1,18 @@
-// Matches the param types exported from AudioEngine.ts / EffectsChain.ts
+export interface ToneRef {
+  filename:  string;
+  available: boolean;
+  toneId?:   number;
+  title?:    string;
+  imageUrl?: string;
+  gearType?: string;
+}
 
 export interface Preset {
   id:        string;
   name:      string;
   createdAt: number;
-  namModel:  { filename: string; available: boolean };
-  cabIR:     { filename: string; available: boolean };
+  namModel:  ToneRef;
+  cabIR:     ToneRef;
   gain:      number;
   gate:      { enabled: boolean; threshold: number; attack: number; release: number };
   eq:        { bass: number; mid: number; treble: number };
