@@ -1,0 +1,80 @@
+.tuner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 16px;
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  min-width: 120px;
+}
+
+.needleWrap {
+  position: relative;
+  width: 80px;
+  height: 40px;
+  overflow: hidden;
+}
+
+.needle {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  height: 36px;
+  margin-left: -1px;
+  transform-origin: bottom center;
+  border-radius: 1px;
+  transition: background 0.1s;
+}
+
+.needleCenter {
+  position: absolute;
+  bottom: -4px;
+  left: 50%;
+  width: 8px;
+  height: 8px;
+  margin-left: -4px;
+  background: #333;
+  border-radius: 50%;
+}
+
+.noteRow {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+.note {
+  font-size: 28px;
+  font-weight: 700;
+  color: #ccc;
+  line-height: 1;
+}
+
+.note.inTune {
+  color: #4caf50;
+}
+
+.octave {
+  font-size: 14px;
+  color: #666;
+}
+
+.centsRow {
+  font-size: 12px;
+  color: #888;
+  font-family: monospace;
+  min-height: 16px;
+}
+
+.centsRow span.inTune {
+  color: #4caf50;
+}
+
+.freq {
+  font-size: 10px;
+  color: #444;
+  font-family: monospace;
+}

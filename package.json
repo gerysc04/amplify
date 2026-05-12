@@ -1,0 +1,15 @@
+{
+  "name": "amplify",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently --names 'BACKEND,FRONTEND' --prefix-colors 'blue,green' 'npm run dev:backend' 'npm run dev:frontend'",
+    "dev:backend": "cd backend && .venv/bin/uvicorn main:app --reload --port 8000",
+    "dev:frontend": "cd frontend && npm run dev",
+    "build": "cd frontend && npm run build",
+    "lint": "cd frontend && npm run lint"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

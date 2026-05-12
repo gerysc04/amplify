@@ -1,6 +1,6 @@
 import type { ToneRef } from '../types/audio';
 import { WHAMMY_MODES } from '../types/audio';
-import type { GateParams, EqParams, DelayParams, ReverbParams, ChorusParams, WahParams, TransposeParams, WhammyParams } from '../lib/audio/AudioEngine';
+import type { GateParams, EqParams, DelayParams, ReverbParams, ChorusParams, WahParams, TransposeParams, WhammyParams, CompressorParams } from '../lib/audio/AudioEngine';
 import EffectsRack from './EffectsRack';
 import Knob from './knobs/Knob';
 import { GearIcon } from './GearIcon';
@@ -29,6 +29,7 @@ interface Props {
   wah:       WahParams;
   transpose: TransposeParams;
   whammy:    WhammyParams;
+  compressor?: CompressorParams;
   delay:     DelayParams;
   reverb:    ReverbParams;
   chorus:    ChorusParams;
@@ -39,6 +40,7 @@ interface Props {
   onWah:           (p: WahParams)       => void;
   onTranspose:     (p: TransposeParams) => void;
   onWhammy:        (p: WhammyParams)    => void;
+  onCompressor?:   (p: CompressorParams) => void;
   onDelay:         (p: DelayParams)  => void;
   onReverb:        (p: ReverbParams) => void;
   onChorus:        (p: ChorusParams) => void;
@@ -48,8 +50,8 @@ interface Props {
 
 export default function SignalChain({
   namModel, cabIR, isFullRig,
-  gain, volume, gate, eq, wah, transpose, whammy, delay, reverb, chorus,
-  onGainChange, onVolumeChange, onGate, onEq, onWah, onTranspose, onWhammy,
+  gain, volume, gate, eq, wah, transpose, whammy, compressor, delay, reverb, chorus,
+  onGainChange, onVolumeChange, onGate, onEq, onWah, onTranspose, onWhammy, onCompressor,
   onDelay, onReverb, onChorus,
   onClickAmp, onClickCab,
 }: Props) {
@@ -194,6 +196,7 @@ export default function SignalChain({
           <EffectsRack
             gate={gate}     onGate={onGate}
             eq={eq}         onEq={onEq}
+            compressor={compressor} onCompressor={onCompressor}
             delay={delay}   onDelay={onDelay}
             reverb={reverb} onReverb={onReverb}
             chorus={chorus} onChorus={onChorus}

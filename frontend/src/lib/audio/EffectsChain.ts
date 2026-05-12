@@ -172,6 +172,26 @@ export class EffectsChain {
 
   dispose(): void {
     this._chorusLfo.stop();
+
+    this.input.disconnect();
+    this._whammyIn.disconnect();
+    this._whammyDry.disconnect();
+    this._whammyWet.disconnect();
     this._whammyNode?.disconnect();
+    this._delayNode.disconnect();
+    this._delayFb.disconnect();
+    this._delayDry.disconnect();
+    this._delayWet.disconnect();
+    this._reverbIn.disconnect();
+    this._reverb.disconnect();
+    this._reverbDry.disconnect();
+    this._reverbWet.disconnect();
+    this._chorusIn.disconnect();
+    this._chorusDelay.disconnect();
+    this._chorusLfo.disconnect();
+    this._chorusLfoG.disconnect();
+    this._chorusDry.disconnect();
+    this._chorusWet.disconnect();
+    this.output.disconnect();
   }
 }

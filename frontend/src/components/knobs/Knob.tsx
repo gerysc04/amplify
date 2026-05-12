@@ -5,6 +5,7 @@ interface KnobProps {
   value: number;          // 0–1
   onChange: (value: number) => void;
   label: string;
+  size?: number;          // rendered size in px (SVG scales internally)
   defaultValue?: number;
 }
 

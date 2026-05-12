@@ -4,6 +4,7 @@ import {
   type GateParams, type EqParams,
   type DelayParams, type ReverbParams, type ChorusParams,
   type WahParams, type TransposeParams, type WhammyParams,
+  type CompressorParams,
 } from '../lib/audio/AudioEngine';
 import { enumerateAudioDevices } from '../lib/audio/devices';
 import { fileCache } from '../lib/storage/FileCache';
@@ -15,6 +16,7 @@ import { midiSetupManager } from '../lib/storage/MidiSetupManager';
 import type { MidiAction, MidiSetup, Preset, ToneRef } from '../types/audio';
 import TopBar from './TopBar';
 import SignalChain from './SignalChain';
+import Tuner from './Tuner';
 import ToneBrowser, { type BrowseTarget } from './ToneBrowser';
 import PresetsModal from './PresetsModal';
 import SettingsModal from './SettingsModal';
@@ -44,9 +46,15 @@ export default function AudioEngine() {
   const [wah,       setWah]       = useState<WahParams>       ({ enabled: false, frequency: 0.3, q: 10 });
   const [transpose, setTranspose] = useState<TransposeParams> ({ semitones: 0 });
   const [whammy,    setWhammy]    = useState<WhammyParams>    ({ enabled: false, mode: '+1oct', semitones: 12, expression: 0, mix: 1 });
+  const [compressor, setCompressor] = useState<CompressorParams>({ enabled: false, threshold: -20, ratio: 4, attack: 0.003, release: 0.15, knee: 3 });
   const [delay,   setDelay]   = useState<DelayParams>   ({ enabled: false, time: 0.3, feedback: 0.35, mix: 0.3 });
   const [reverb,  setReverb]  = useState<ReverbParams>  ({ enabled: false, mix: 0.25 });
   const [chorus,  setChorus]  = useState<ChorusParams>  ({ enabled: false, rate: 1.5, depth: 0.005, mix: 0.3 });
+
+  // Tuner
+  const [tunerEnabled, setTunerEnabled] = useState(false);
+  const [tunerVisible, setTunerVisible] = useState(false);
+  const tunerNodeRef = useRef<AudioWorkletNode | null>(null);
 
   // Loaded tones
   const [namModel,   setNamModel]   = useState<ToneRef>(EMPTY_REF);
@@ -98,7 +106,7 @@ export default function AudioEngine() {
     if (lastId) {
       const last = all.find((p) => p.id === lastId);
       if (last) {
-        const wh = { enabled: false, mode: '+1oct' as const, semitones: 12, expression: 0, mix: 1, ...(last.whammy ?? {}) };
+        const wh: WhammyParams = Object.assign({ enabled: false, mode: '+1oct' as const, semitones: 12, expression: 0, mix: 1 }, last.whammy ?? {});
         setGain(last.gain ?? 0.5);
         setVolume(last.volume ?? 0.8);
         setGate(last.gate);
@@ -106,9 +114,11 @@ export default function AudioEngine() {
         setTranspose(last.transpose ?? { semitones: 0 });
         setWah(last.wah ?? { enabled: false, frequency: 0.3, q: 5 });
         setWhammy(wh);
+        setCompressor(last.compressor ?? { enabled: false, threshold: -20, ratio: 4, attack: 0.003, release: 0.15, knee: 3 });
         setDelay(last.delay);
         setReverb(last.reverb);
         setChorus(last.chorus);
+        setTunerEnabled(last.tunerEnabled ?? false);
         setNamModel(last.namModel);
         setCabIR(last.cabIR);
         setIsFullRig(last.namModel.gearType === 'full-rig');
@@ -155,6 +165,7 @@ export default function AudioEngine() {
       const engine = getEngine();
       await engine.start({ inputDeviceId: inputId || undefined, outputDeviceId: outputId || undefined });
       setAnalyser(engine.getAnalyser());
+      tunerNodeRef.current = engine.getTunerNode();
       setAudioReady(true);
       const { inputs, outputs } = await enumerateAudioDevices();
       setInputs(inputs); setOutputs(outputs);
@@ -169,6 +180,8 @@ export default function AudioEngine() {
           engine.setOutputGain(preset.volume ?? 0.8);
           engine.setGateParams(preset.gate);
           engine.setEqParams(preset.eq);
+          engine.setCompressorParams(preset.compressor ?? { enabled: false, threshold: -20, ratio: 4, attack: 0.003, release: 0.15, knee: 3 });
+          engine.setTunerEnabled(preset.tunerEnabled ?? false);
           // Load cached files silently
           const loadRef = async (ref: typeof preset.namModel, apply: (f: File, m: typeof ref) => Promise<void>) => {
             if (!ref.filename) return;
@@ -194,8 +207,8 @@ export default function AudioEngine() {
   const handleToggleMute = useCallback(() => {
     const next = !muted;
     setMuted(next);
-    engineRef.current?.setOutputGain(next ? 0 : 1);
-  }, [muted]);
+    engineRef.current?.setOutputGain(next ? 0 : volume);
+  }, [muted, volume]);
 
   // ---------------------------------------------------------------------------
   // Parameter handlers
@@ -208,9 +221,19 @@ export default function AudioEngine() {
   const handleWhammyChange    = useCallback((p: WhammyParams)    => { setWhammy(p);    engineRef.current?.setWhammyParams(p); }, []);
   const handleGateChange  = useCallback((p: GateParams)  => { setGate(p);   engineRef.current?.setGateParams(p); }, []);
   const handleEqChange    = useCallback((p: EqParams)    => { setEq(p);     engineRef.current?.setEqParams(p); }, []);
+  const handleCompressorChange = useCallback((p: CompressorParams) => { setCompressor(p); engineRef.current?.setCompressorParams(p); }, []);
   const handleDelayChange = useCallback((p: DelayParams) => { setDelay(p);  engineRef.current?.setDelayParams(p); }, []);
   const handleReverbChange= useCallback((p: ReverbParams)=> { setReverb(p); engineRef.current?.setReverbParams(p); }, []);
   const handleChorusChange= useCallback((p: ChorusParams)=> { setChorus(p); engineRef.current?.setChorusParams(p); }, []);
+
+  const handleToggleTuner = useCallback(() => {
+    setTunerVisible((v) => !v);
+    setTunerEnabled((prev) => {
+      const next = !prev;
+      engineRef.current?.setTunerEnabled(next);
+      return next;
+    });
+  }, []);
 
   const handleInputChange = useCallback((id: string) => {
     setInputId(id); localStorage.setItem('amplify-input-device', id);
@@ -270,7 +293,10 @@ export default function AudioEngine() {
   }, [applyModelFile, applyIrFile]);
 
   const handleOpenBrowse = useCallback((target: BrowseTarget) => {
-    if (!isAuthenticated()) { setShowBrowse(false); return; }
+    if (!isAuthenticated()) {
+      setError('Please connect your tone3000 account to browse tones (Settings → tone3000 login)');
+      return;
+    }
     setBrowseTarget(target);
     setShowBrowse(true);
   }, []);
@@ -285,8 +311,9 @@ export default function AudioEngine() {
     createdAt: Date.now(),
     namModel,
     cabIR,
-    gain, volume, gate, eq, transpose, wah, whammy, delay, reverb, chorus,
-  }), [namModel, cabIR, gain, volume, gate, eq, transpose, wah, whammy, delay, reverb, chorus]);
+    gain, volume, gate, eq, transpose, wah, whammy, compressor, delay, reverb, chorus,
+    tunerEnabled,
+  }), [namModel, cabIR, gain, volume, gate, eq, transpose, wah, whammy, compressor, delay, reverb, chorus, tunerEnabled]);
 
   const activatePreset = useCallback((preset: Preset) => {
     setActivePreset(preset);
@@ -314,7 +341,7 @@ export default function AudioEngine() {
     const vol = preset.volume ?? 0.8;
     const tr  = preset.transpose ?? { semitones: 0 };
     const w   = preset.wah    ?? { enabled: false, frequency: 0.3, q: 5 };
-    const wh  = { enabled: false, mode: '+1oct' as const, semitones: 12, expression: 0, mix: 1, ...(preset.whammy ?? {}) };
+    const wh: WhammyParams = Object.assign({ enabled: false, mode: '+1oct' as const, semitones: 12, expression: 0, mix: 1 }, preset.whammy ?? {});
 
     setGain(g);       engineRef.current?.setGain(g);
     setVolume(vol);   engineRef.current?.setOutputGain(vol);
@@ -323,9 +350,13 @@ export default function AudioEngine() {
     setTranspose(tr);       engineRef.current?.setTransposeParams(tr);
     setWah(w);              engineRef.current?.setWahParams(w);
     setWhammy(wh);          engineRef.current?.setWhammyParams(wh);
+    const comp = preset.compressor ?? { enabled: false, threshold: -20, ratio: 4, attack: 0.003, release: 0.15, knee: 3 };
+    setCompressor(comp);      engineRef.current?.setCompressorParams(comp);
     setDelay(preset.delay);   engineRef.current?.setDelayParams(preset.delay);
     setReverb(preset.reverb); engineRef.current?.setReverbParams(preset.reverb);
     setChorus(preset.chorus); engineRef.current?.setChorusParams(preset.chorus);
+    const tunerOn = preset.tunerEnabled ?? false;
+    setTunerEnabled(tunerOn); engineRef.current?.setTunerEnabled(tunerOn);
     setNamModel(preset.namModel);
     setCabIR(preset.cabIR);
     setIsFullRig(preset.namModel.gearType === 'full-rig');
@@ -398,7 +429,8 @@ export default function AudioEngine() {
   const dispatchMidiAction = useCallback((action: MidiAction) => {
     switch (action.type) {
       case 'toggle':
-        if (action.target === 'gate')   setGate((p)   => { const n = { ...p, enabled: !p.enabled }; engineRef.current?.setGateParams(n);    return n; });
+        if (action.target === 'gate')       setGate((p)       => { const n = { ...p, enabled: !p.enabled }; engineRef.current?.setGateParams(n);       return n; });
+        if (action.target === 'compressor') setCompressor((p) => { const n = { ...p, enabled: !p.enabled }; engineRef.current?.setCompressorParams(n); return n; });
         if (action.target === 'delay')  setDelay((p)  => { const n = { ...p, enabled: !p.enabled }; engineRef.current?.setDelayParams(n);   return n; });
         if (action.target === 'reverb') setReverb((p) => { const n = { ...p, enabled: !p.enabled }; engineRef.current?.setReverbParams(n);  return n; });
         if (action.target === 'chorus') setChorus((p) => { const n = { ...p, enabled: !p.enabled }; engineRef.current?.setChorusParams(n);  return n; });
@@ -424,6 +456,11 @@ export default function AudioEngine() {
         if (action.target === 'chorus.depth')    setChorus((p) => { const n = { ...p, depth: 0.001 + v * 0.014 }; engineRef.current?.setChorusParams(n); return n; });
         if (action.target === 'chorus.mix')      setChorus((p) => { const n = { ...p, mix: v };          engineRef.current?.setChorusParams(n); return n; });
         if (action.target === 'gate.threshold')  setGate((p)   => { const n = { ...p, threshold: 0.001 + v * 0.099 }; engineRef.current?.setGateParams(n); return n; });
+        if (action.target === 'compressor.threshold') setCompressor((p) => { const n = { ...p, threshold: -40 + v * 40 }; engineRef.current?.setCompressorParams(n); return n; });
+        if (action.target === 'compressor.ratio')     setCompressor((p) => { const n = { ...p, ratio: 1 + v * 19 };    engineRef.current?.setCompressorParams(n); return n; });
+        if (action.target === 'compressor.attack')    setCompressor((p) => { const n = { ...p, attack: 0.001 + v * 0.099 }; engineRef.current?.setCompressorParams(n); return n; });
+        if (action.target === 'compressor.release')   setCompressor((p) => { const n = { ...p, release: 0.01 + v * 0.99 }; engineRef.current?.setCompressorParams(n); return n; });
+        if (action.target === 'compressor.knee')      setCompressor((p) => { const n = { ...p, knee: v * 12 };           engineRef.current?.setCompressorParams(n); return n; });
         break;
       }
       case 'load_preset': {
@@ -486,7 +523,16 @@ export default function AudioEngine() {
         midiReady={midiReady}
         onSavePreset={openSaveAs}
         onUpdatePreset={handleUpdatePreset}
+        tunerVisible={tunerVisible}
+        onToggleTuner={handleToggleTuner}
       />
+
+      {tunerVisible && (
+        <Tuner
+          tunerNode={tunerNodeRef.current}
+          visible={tunerVisible}
+        />
+      )}
 
       <SignalChain
         namModel={namModel}
@@ -495,11 +541,13 @@ export default function AudioEngine() {
         gain={gain}     volume={volume}
         gate={gate}     eq={eq}
         wah={wah}       transpose={transpose}  whammy={whammy}
+        compressor={compressor}
         delay={delay}   reverb={reverb} chorus={chorus}
         onGainChange={handleGainChange}
         onVolumeChange={handleVolumeChange}
         onGate={handleGateChange}     onEq={handleEqChange}
         onWah={handleWahChange}       onTranspose={handleTransposeChange}  onWhammy={handleWhammyChange}
+        onCompressor={handleCompressorChange}
         onDelay={handleDelayChange}   onReverb={handleReverbChange}
         onChorus={handleChorusChange}
         onClickAmp={() => handleOpenBrowse('amp')}

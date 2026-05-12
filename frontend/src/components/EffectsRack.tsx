@@ -1,5 +1,5 @@
 import Knob from './knobs/Knob';
-import type { GateParams, EqParams, DelayParams, ReverbParams, ChorusParams } from '../lib/audio/AudioEngine';
+import type { GateParams, EqParams, DelayParams, ReverbParams, ChorusParams, CompressorParams } from '../lib/audio/AudioEngine';
 import styles from './EffectsRack.module.css';
 
 // ---- value↔param mapping helpers ----------------------------------------
@@ -19,6 +19,18 @@ const knobToRate    = (k: number) => 0.1 + k * 3.9;
 // Chorus depth: 0-1 → 1ms–15ms
 const depthToKnob   = (d: number) => (d - 0.001) / 0.014;
 const knobToDepth   = (k: number) => 0.001 + k * 0.014;
+
+// Compressor mappings
+const threshDbToKnob = (db: number) => (db + 40) / 40;  // -40..0 dB
+const knobToThreshDb = (k: number) => k * 40 - 40;
+const ratioToKnob    = (r: number) => (r - 1) / 19;      // 1..20
+const knobToRatio    = (k: number) => 1 + k * 19;
+const attackToKnob   = (a: number) => (a - 0.001) / 0.099; // 1ms..100ms
+const knobToAttack   = (k: number) => 0.001 + k * 0.099;
+const releaseToKnob  = (r: number) => (r - 0.01) / 0.99;  // 10ms..1s
+const knobToRelease  = (k: number) => 0.01 + k * 0.99;
+const kneeToKnob     = (db: number) => db / 12;           // 0..12 dB
+const knobToKnee     = (k: number) => k * 12;
 
 // ---- Sub-components -------------------------------------------------------
 
@@ -48,6 +60,8 @@ interface Props {
   onGate:   (p: GateParams)   => void;
   eq:       EqParams;
   onEq:     (p: EqParams)     => void;
+  compressor?: CompressorParams;
+  onCompressor?: (p: CompressorParams) => void;
   delay:    DelayParams;
   onDelay:  (p: DelayParams)  => void;
   reverb:   ReverbParams;
@@ -58,7 +72,7 @@ interface Props {
   hideEq?:   boolean;
 }
 
-export default function EffectsRack({ gate, onGate, eq, onEq, delay, onDelay, reverb, onReverb, chorus, onChorus, hideGate, hideEq }: Props) {
+export default function EffectsRack({ gate, onGate, eq, onEq, compressor, onCompressor, delay, onDelay, reverb, onReverb, chorus, onChorus, hideGate, hideEq }: Props) {
   return (
     <div className={styles.rack}>
 
@@ -75,6 +89,48 @@ export default function EffectsRack({ gate, onGate, eq, onEq, delay, onDelay, re
             value={threshToKnob(gate.threshold)}
             onChange={(k) => onGate({ ...gate, threshold: knobToThresh(k) })}
             defaultValue={threshToKnob(0.02)}
+          />
+        </div>
+      </div>
+      )}
+
+      {/* ---- COMPRESSOR ---- */}
+      {compressor && onCompressor && (
+      <div className={styles.effect}>
+        <div className={styles.header}>
+          <Toggle on={compressor.enabled} onClick={() => onCompressor({ ...compressor, enabled: !compressor.enabled })} />
+          <span className={styles.name}>COMP</span>
+        </div>
+        <div className={styles.knobs}>
+          <Knob
+            label="Thresh"
+            value={threshDbToKnob(compressor.threshold)}
+            onChange={(k) => onCompressor({ ...compressor, threshold: knobToThreshDb(k) })}
+            defaultValue={threshDbToKnob(-20)}
+          />
+          <Knob
+            label="Ratio"
+            value={ratioToKnob(compressor.ratio)}
+            onChange={(k) => onCompressor({ ...compressor, ratio: knobToRatio(k) })}
+            defaultValue={ratioToKnob(4)}
+          />
+          <Knob
+            label="Attack"
+            value={attackToKnob(compressor.attack)}
+            onChange={(k) => onCompressor({ ...compressor, attack: knobToAttack(k) })}
+            defaultValue={attackToKnob(0.003)}
+          />
+          <Knob
+            label="Release"
+            value={releaseToKnob(compressor.release)}
+            onChange={(k) => onCompressor({ ...compressor, release: knobToRelease(k) })}
+            defaultValue={releaseToKnob(0.15)}
+          />
+          <Knob
+            label="Knee"
+            value={kneeToKnob(compressor.knee)}
+            onChange={(k) => onCompressor({ ...compressor, knee: knobToKnee(k) })}
+            defaultValue={kneeToKnob(3)}
           />
         </div>
       </div>

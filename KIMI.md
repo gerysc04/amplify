@@ -18,7 +18,7 @@ DSP, tone3000 for amp/cab/pedal library, FastAPI + MongoDB backend for multi-dev
 amplify/
   frontend/   ← Vite + React + TypeScript SPA
   backend/    ← FastAPI + MongoDB (multi-device preset + MIDI sync)
-  CLAUDE.md
+  KIMI.md     ← This file
   .gitignore
 ```
 
@@ -193,10 +193,16 @@ Do NOT put `dispatchMidiAction` in the dependency array of the ref-update effect
 before `dispatchMidiAction` is declared — that causes a TDZ ReferenceError.
 
 ### Wah implementation
-Wah = high-Q (Q=10) bandpass BiquadFilter in parallel with dry bypass.
-When enabled: dry gain → 0, wet gain → 1.5 (dominant filtered signal).
-When disabled: dry gain → 1, wet gain → 0 (full bypass).
-Frequency range: 300–2200 Hz (heel to toe, matching CryBaby sweep).
+Wah = resonant **peaking** BiquadFilter (not bandpass) in parallel with dry bypass.
+`peaking` is the correct filter type: it boosts a narrow band while letting the full
+signal pass through. `bandpass` with high Q removes everything outside its narrow
+passband — this caused the signal to vanish at high sweep positions.
+- Center frequency: 300–2200 Hz (CryBaby sweep), **logarithmic** mapping
+- Q: ~5 (moderate resonance)
+- Gain: +10 dB when enabled, 0 dB when disabled
+- Dry/wet: **30% dry / 100% wet blend when on** — the dry bleed preserves sustain
+  on the note decay tail and keeps low-string body. Full bypass when off.
+- All parameters (freq, Q, gain) use `setTargetAtTime()` for smooth transitions.
 
 ### Looper timing must be sample-accurate
 Use `AudioContext.currentTime` scheduling, not `setTimeout`.
@@ -218,13 +224,19 @@ frontend/
       SignalChain.tsx       ← Full-width Bias FX-style signal chain UI
       EffectsRack.tsx       ← Gate/EQ/Delay/Reverb/Chorus rack panels
       ToneBrowser.tsx       ← tone3000 custom amp/cab browser
-      PresetsModal.tsx      ← Preset list, save/load/export/import
+      PresetsModal.tsx      ← Preset list, save/load/export/import (main flow)
+      PresetBrowser.tsx     ← LEGACY preset browser (not used by main flow)
       MidiController.tsx    ← MIDI setup manager (create/edit/activate setups)
       SettingsModal.tsx     ← I/O device selection
       TopBar.tsx            ← Transport, preset name, MIDI/settings buttons
       LevelMeter.tsx        ← RMS input level bar
       Modal.tsx             ← Generic modal wrapper
+      DeviceSelector.tsx    ← Audio input/output dropdown
       GearIcon.tsx          ← SVG icons for amp/full-rig/ir/pedal gear types
+      AmpBrowser.tsx        ← LEGACY (unused)
+      AmpHead.tsx           ← LEGACY (unused)
+      CabLoader.tsx         ← LEGACY (unused)
+      ModelLoader.tsx       ← LEGACY (unused)
       knobs/
         Knob.tsx            ← SVG rotary knob (0–1, vertical drag, double-click reset)
     lib/
@@ -244,8 +256,8 @@ frontend/
         client.ts           ← OAuth PKCE flow + authenticated API client
         types.ts            ← Tone, Model, User interfaces
       api/
-        presets.ts          ← Backend preset CRUD (not wired to frontend yet)
         midiSetups.ts       ← Backend MIDI setup CRUD (not wired to frontend yet)
+        presets.ts          ← Does NOT exist yet (backend API exists but no frontend wrapper)
       midi/
         MidiManager.ts      ← Web MIDI API wrapper, CC dispatch, learn mode
     types/
@@ -260,6 +272,7 @@ frontend/
 backend/
   main.py              ← FastAPI app entry point
   routers/
+    auth.py            ← OAuth PKCE URL generation + token exchange
     presets.py         ← GET/POST/PUT/DELETE /api/presets
     midi_setups.py     ← CRUD for setups + embedded mappings
   models/
@@ -280,6 +293,83 @@ backend/
 - Gear types: `amp`, `full-rig`, `ir` now; `pedal` in Phase 10
 - Files never stored on our servers — fetched browser-side, cached in IndexedDB
 - Publishable key committed to repo (safe — designed to be public)
+
+---
+
+## Adding a new effect to the signal chain
+
+When adding any new audio effect, update **all** of the following:
+
+1. **AudioWorklet** (if DSP is needed)
+   - Add `public/worklets/<name>-processor.js`
+   - Register processor with `registerProcessor('<name>-processor', ...)`
+
+2. **Audio engine graph**
+   - `src/lib/audio/AudioEngine.ts`
+     - Declare private node properties
+     - Create nodes in `start()`
+     - Connect into the signal chain
+     - Add public parameter setter (`setXxxParams`)
+     - **Disconnect new nodes in `stop()`** — memory leak if missed
+     - If the effect has dry/wet mix, use the parallel GainNode pattern
+
+3. **Effect params type**
+   - `src/types/audio.ts` — add `XxxParams` interface
+   - Add to `Preset` interface
+   - Add to MIDI `ParamTarget` union (if MIDI-controllable)
+
+4. **React state + handlers**
+   - `src/components/AudioEngine.tsx`
+     - Add `useState` for params
+     - Add change handler (updates React state + calls engine)
+     - Add to `snapshotPreset()`
+     - Add to `handleLoadPreset()` (with default fallback for old presets)
+     - Add to `dispatchMidiAction()` `set_param` branch
+     - Add to `startAudio()` preset restoration
+
+5. **UI**
+   - `src/components/SignalChain.tsx` — add to signal chain layout
+   - `src/components/EffectsRack.tsx` — add rack panel (if applicable)
+
+6. **Backend schema**
+   - `backend/models/preset.py` — add field to `PresetParams`
+
+7. **Preset Manager validation** (optional but recommended)
+   - `src/lib/storage/PresetManager.ts` — validate new field on load
+
+---
+
+## Known gotchas / agent traps
+
+### Volume scaling is hidden
+`AudioEngine.setOutputGain(value)` multiplies by **0.7** internally:
+```ts
+this._outputGain.gain.setTargetAtTime(value * 0.7, ...);
+```
+This means a UI volume of `1.0` → actual gain node value of `0.7`. The mute toggle
+must pass the user's `volume` state (e.g. `0.8`), not `1`, when unmuting.
+
+### MIDI `set_param` abuses the `min` field
+`MidiManager._dispatchCC` computes the resolved 0–1 value and stores it in `action.min`.
+The handler in `AudioEngine.tsx` reads `const v = action.min;` and ignores `action.max`.
+This is historical — changing it would break saved MIDI setups in localStorage.
+
+### Backend preset schema nests under `params`
+The backend stores effect params nested under `params: { ... }`. The frontend `Preset`
+interface is **flat**. When wiring backend sync, a mapping layer is needed.
+
+### Audio graph cleanup is manual
+`AudioEngine.stop()` and `EffectsChain.dispose()` must explicitly `.disconnect()`
+every node created in `start()`. Nodes stored only as local `const` variables
+cannot be disconnected later — store them as instance properties.
+
+### `PresetManager` / `MidiSetupManager` have no validation
+Corrupted `localStorage` data can crash the app. `JSON.parse` is unguarded beyond
+a try/catch that returns `[]`.
+
+### `setOutputDevice` failure is unrecoverable without cleanup
+If `audioContext.setSinkId()` throws, the `AudioContext` and `MediaStream` are
+already alive. They must be explicitly closed/stopped before re-throwing.
 
 ---
 
@@ -304,7 +394,8 @@ backend/
 - Preset CRUD — save/load/delete/export JSON/import JSON (localStorage)
 - Auto-restore last active preset on page reload (params + cached files)
 - Local file fallback — upload own .nam/.wav for amp/IR (private, IndexedDB)
-- Backend API built (FastAPI + MongoDB) but frontend uses localStorage for now
+- Backend API built (FastAPI + MongoDB) — schema now matches frontend
+- Frontend uses localStorage for now; backend sync is future work
 
 ### Phase 5 — MIDI + Wah/Transpose/Whammy ✅
 - Web MIDI API, CC learn mode (Move a knob → mapped)
@@ -339,9 +430,83 @@ backend/
 
 ---
 
+## Feature checklist
+
+### ✅ Implemented
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Audio input (getUserMedia) | ✅ | Echo cancel / noise suppress / AGC disabled |
+| AudioContext on user gesture | ✅ | Starts on first window click |
+| Mono downmix | ✅ | Explicit `channelCount=1` GainNode |
+| Input level meter | ✅ | AnalyserNode FFT tap |
+| Output gain / mute | ✅ | Scales by 0.7 internally |
+| Audio I/O device selection | ✅ | `setSinkId` for output (Chrome 110+) |
+| NAM .nam parser | ✅ | LSTM + WaveNet weight validation |
+| NAM inference (AudioWorklet) | ✅ | WaveNet + LSTM engines |
+| Cab IR (ConvolverNode) | ✅ | `.wav` decode; dirac delta bypass for full-rig |
+| Noise gate | ✅ | AudioWorklet, separate env/gain coefficients |
+| 3-band EQ | ✅ | Lowshelf 250Hz / Peaking 1kHz / Highshelf 4kHz |
+| Delay | ✅ | Wet/dry + feedback |
+| Reverb | ✅ | Synthetic 1.8s noise IR, wet/dry |
+| Chorus | ✅ | LFO-modulated delay, wet/dry |
+| tone3000 OAuth (PKCE) | ✅ | Backend generates URL + exchanges code |
+| tone3000 amp/cab browser | ✅ | Custom UI, search/filter/sort/pagination |
+| Full-rig bypass | ✅ | Dirac delta on convolver, hides cab UI |
+| Preset CRUD (localStorage) | ✅ | Save/load/delete/export/import JSON |
+| Preset auto-restore | ✅ | On page reload, including cached file reload |
+| Local file upload | ✅ | `.nam` / `.wav` for private amp/IR |
+| IndexedDB file cache | ✅ | Models + IRs cached per device |
+| Backend preset API | ✅ | FastAPI CRUD + MongoDB |
+| Backend MIDI setup API | ✅ | FastAPI CRUD + MongoDB |
+| Web MIDI API | ✅ | Input enumeration + CC/PC handling |
+| MIDI CC learn | ✅ | Listen for next CC, auto-map |
+| MIDI named setups | ✅ | Multiple setups, activate one |
+| MIDI toggle effects | ✅ | Gate, delay, reverb, chorus, wah, whammy |
+| MIDI set param | ✅ | CC → continuous param control |
+| MIDI expression pedal | ✅ | Wah sweep, whammy heel→toe |
+| MIDI load preset | ✅ | PC message or CC-mapped |
+| Wah | ✅ | Bandpass Q=10, 300–2200Hz, dry/wet mix |
+| Transpose | ✅ | Pre-amp pitch shift ±24st, dry bypass at 0 |
+| Whammy | ✅ | Post-amp pitch shift, 12 modes + custom, expression |
+| SVG Knob | ✅ | Vertical drag, double-click reset, `size` prop |
+
+### ⏳ Not yet implemented
+
+| Feature | Phase | Notes |
+|---------|-------|-------|
+| Chromatic tuner | 6 | YIN algorithm in AudioWorklet |
+| Compressor | 6 | Soft-knee dynamics, AudioWorklet |
+| Audio recorder | 7 | MediaRecorder → WAV export |
+| Looper | 7 | Sample-accurate, SharedArrayBuffer |
+| Parametric EQ (graphical) | 8 | 8-band draggable Bode plot |
+| Spectrum analyser | 8 | Real-time FFT behind EQ curve |
+| Rust/WASM pitch shifter | 9 | Replace JS OLA whammy/transpose |
+| Drag-and-drop signal chain | 10 | Multiple amps/cabs/pedals, reorderable |
+| NAM pedal support | 10 | `gear=pedal` from tone3000 |
+| `preset_pedals` MongoDB collection | 10 | Slot order, tone3000_id, enabled |
+| Backend preset sync (frontend) | — | API exists, no frontend wrapper yet |
+| Backend MIDI setup sync (frontend) | — | `midiSetups.ts` exists but not wired to UI |
+| Multi-device sync | — | Requires wiring above + conflict resolution |
+
+---
+
 ## Developer preferences
 - TypeScript for all frontend code, Python (typed with Pydantic) for backend
 - CSS modules, no Tailwind
 - Full file contents when showing code, not partial snippets
 - Commit per feature, no Co-Authored-By
 - **Always run the dev server and let the user test before committing**
+- **Run `npm run build` before finishing to verify TypeScript compiles clean**
+
+### Build commands
+```bash
+# Frontend
+cd frontend
+npm run dev      # Vite dev server
+npm run build    # tsc + vite build (verify no TS errors)
+
+# Backend
+cd backend
+python3 -m uvicorn main:app --reload --port 8000
+```

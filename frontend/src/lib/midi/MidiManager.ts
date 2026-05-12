@@ -28,7 +28,10 @@ export class MidiManager {
   }
 
   private _handle(e: MIDIMessageEvent): void {
-    const [status, data1, data2] = e.data;
+    if (!e.data || e.data.length < 2) return;
+    const status  = e.data[0];
+    const data1   = e.data[1];
+    const data2   = e.data[2] ?? 0;
     const type    = status & 0xf0;
     const channel = (status & 0x0f) + 1; // 1-based
 

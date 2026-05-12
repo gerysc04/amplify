@@ -4,12 +4,18 @@ from pydantic import BaseModel
 
 
 class PresetParams(BaseModel):
-    gain:   float
-    gate:   dict[str, Any]
-    eq:     dict[str, Any]
-    delay:  dict[str, Any]
-    reverb: dict[str, Any]
-    chorus: dict[str, Any]
+    gain:         float
+    volume:       float
+    gate:         dict[str, Any]
+    eq:           dict[str, Any]
+    transpose:    dict[str, Any]
+    wah:          dict[str, Any]
+    whammy:       dict[str, Any]
+    compressor:   dict[str, Any]
+    delay:        dict[str, Any]
+    reverb:       dict[str, Any]
+    chorus:       dict[str, Any]
+    tuner_enabled: bool = False
 
 
 class PresetCreate(BaseModel):

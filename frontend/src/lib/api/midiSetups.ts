@@ -1,5 +1,4 @@
 import type { MidiSetup } from '../../types/audio';
-import { presetsApi } from '../tone3000/client';
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:8000';
 

@@ -2,12 +2,13 @@
 
 export type MidiActionType = 'load_preset' | 'toggle' | 'set_param';
 export type ToggleTarget =
-  | 'gate' | 'delay' | 'reverb' | 'chorus' | 'wah' | 'whammy';
+  | 'gate' | 'compressor' | 'delay' | 'reverb' | 'chorus' | 'wah' | 'whammy';
 
 export type ParamTarget =
   | 'gain' | 'volume'
   | 'gate.threshold'
   | 'eq.bass' | 'eq.mid' | 'eq.treble'
+  | 'compressor.threshold' | 'compressor.ratio' | 'compressor.attack' | 'compressor.release' | 'compressor.knee'
   | 'delay.time' | 'delay.feedback' | 'delay.mix'
   | 'reverb.mix'
   | 'chorus.rate' | 'chorus.depth' | 'chorus.mix'
@@ -41,6 +42,15 @@ export interface WahParams {
   enabled:   boolean;
   frequency: number;   // 0–1 → 200–3000 Hz
   q:         number;   // resonance (default 5)
+}
+
+export interface CompressorParams {
+  enabled:   boolean;
+  threshold: number;   // dB (-40 to 0)
+  ratio:     number;   // 1 to 20
+  attack:    number;   // seconds (0.001 to 0.1)
+  release:   number;   // seconds (0.01 to 1.0)
+  knee:      number;   // dB (0 to 12)
 }
 
 export interface TransposeParams {
@@ -101,7 +111,9 @@ export interface Preset {
   transpose: TransposeParams;
   wah:       WahParams;
   whammy:    WhammyParams;
+  compressor: CompressorParams;
   delay:     { enabled: boolean; time: number; feedback: number; mix: number };
   reverb:    { enabled: boolean; mix: number };
   chorus:    { enabled: boolean; rate: number; depth: number; mix: number };
+  tunerEnabled: boolean;
 }

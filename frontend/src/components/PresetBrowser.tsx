@@ -17,8 +17,8 @@ interface Props {
 }
 
 export default function PresetBrowser({
-  presets, activePreset, cachedModels, cachedIrs,
-  onLoad, onSave, onUpdate, onDelete, onExport, onImport, onDeleteCachedFile,
+  presets, cachedModels, cachedIrs,
+  onLoad, onSave, onDelete, onExport, onImport, onDeleteCachedFile,
 }: Props) {
   const [showSave, setShowSave]   = useState(false);
   const [saveName, setSaveName]   = useState('');

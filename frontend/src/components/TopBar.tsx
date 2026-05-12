@@ -15,12 +15,15 @@ interface Props {
   onSavePreset:  () => void;
   onUpdatePreset:() => void;
   onToggleMute:  () => void;
+  tunerVisible:  boolean;
+  onToggleTuner: () => void;
 }
 
 export default function TopBar({
   muted, audioReady, activePreset, analyser, midiReady,
   onOpenPresets, onOpenBrowse, onOpenSettings, onOpenMidi,
   onSavePreset, onUpdatePreset, onToggleMute,
+  tunerVisible, onToggleTuner,
 }: Props) {
   return (
     <header className={styles.bar}>
@@ -50,6 +53,9 @@ export default function TopBar({
       <nav className={styles.nav}>
         <button className={styles.navBtn} onClick={onOpenBrowse}>Browse tones</button>
         <button className={styles.navBtn} onClick={onOpenPresets}>Presets</button>
+        <button className={`${styles.navBtn} ${tunerVisible ? styles.navBtnActive : ''}`} onClick={onToggleTuner}>
+          Tuner
+        </button>
         <button className={styles.navBtn} onClick={onOpenMidi}>
           MIDI{midiReady ? ' ●' : ''}
         </button>
