@@ -6,6 +6,8 @@ import ModelLoader from './ModelLoader';
 import CabLoader from './CabLoader';
 import EffectsRack from './EffectsRack';
 import PresetBrowser from './PresetBrowser';
+import AmpBrowser from './AmpBrowser';
+import type { GearType } from '../lib/tone3000/types';
 import {
   AudioEngine as AudioEngineCore,
   type GateParams, type EqParams,
@@ -186,6 +188,17 @@ export default function AudioEngine() {
   const handleModelLoad = useCallback((file: File) => applyModelFile(file), [applyModelFile]);
   const handleIRLoad    = useCallback((file: File) => applyIrFile(file),    [applyIrFile]);
 
+  // Called by AmpBrowser when the user loads a tone from tone3000
+  const handleToneLoad = useCallback(async (file: File, gearType: GearType) => {
+    await applyModelFile(file);
+    if (gearType === 'full-rig') {
+      // Full-rig has amp+cab baked in — bypass the ConvolverNode with a dirac delta
+      engineRef.current?.bypassCabIr();
+      setIrName('(baked in)');
+      irFilenameRef.current = null;
+    }
+  }, [applyModelFile]);
+
   // ---------------------------------------------------------------------------
   // Preset handlers
   // ---------------------------------------------------------------------------
@@ -331,6 +344,7 @@ export default function AudioEngine() {
         eq={eq}         onEqChange={handleEqChange}
         modelName={modelName} namLoaded={namLoaded}
       />
+      <AmpBrowser onLoadModel={handleToneLoad} onLoadIr={handleIRLoad} />
       <ModelLoader modelName={modelName} loading={modelLoading} onLoad={handleModelLoad} />
       <CabLoader   irName={irName}       loading={irLoading}    onLoad={handleIRLoad}    />
       <EffectsRack

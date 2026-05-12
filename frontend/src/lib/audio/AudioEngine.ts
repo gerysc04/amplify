@@ -193,6 +193,14 @@ export class AudioEngine {
     this._irLoaded = true;
   }
 
+  bypassCabIr(): void {
+    if (!this._ctx || !this._cabIR) return;
+    const dirac = this._ctx.createBuffer(1, 1, this._ctx.sampleRate);
+    dirac.getChannelData(0)[0] = 1;
+    this._cabIR.buffer = dirac;
+    this._irLoaded = true;
+  }
+
   // ---------------------------------------------------------------------------
   // Parameter control
   // ---------------------------------------------------------------------------
