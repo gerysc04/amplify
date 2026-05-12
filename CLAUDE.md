@@ -115,7 +115,8 @@ CREATE TABLE presets (
   user_id          UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name             TEXT NOT NULL,
   position         INTEGER DEFAULT 0,         -- display order
-  -- tone3000 references
+  is_public        BOOLEAN DEFAULT false,     -- visible in community browser
+  -- tone3000 references (NULL if local file used — local presets cannot be public)
   nam_tone3000_id  INTEGER,                   -- amp or full-rig tone ID
   nam_gear_type    TEXT,                      -- 'amp' | 'full-rig'
   cab_tone3000_id  INTEGER,                   -- IR tone ID (NULL if full-rig)
@@ -125,6 +126,7 @@ CREATE TABLE presets (
   updated_at       TIMESTAMPTZ DEFAULT now()
 );
 CREATE INDEX ON presets (user_id, position);
+CREATE INDEX ON presets (is_public) WHERE is_public = true;
 
 -- Named MIDI setups per user
 CREATE TABLE midi_setups (
@@ -331,7 +333,11 @@ backend/
 - **Full-rig handling** — auto-bypass ConvolverNode when gear_type is full-rig
 - **Backend** — FastAPI + PostgreSQL for preset + MIDI setup sync
 - **Preset CRUD** — save/load/delete/export/import; synced across devices via backend
-- **Local file fallback** — upload own .nam/.wav when not using tone3000
+- **Local file fallback** — upload own .nam/.wav/.nak for any gear type (amp, IR, pedal)
+  Local files are stored in IndexedDB and are always **private** (no tone3000 ID to reference)
+- **Public preset community** — users can publish presets that reference only tone3000 tones;
+  anyone loading a public preset fetches the files from tone3000 with their own auth token;
+  presets using local files cannot be made public (no redistributable reference exists)
 
 ### Phase 5 — MIDI
 - Web MIDI API, MIDI learn mode (click knob → move controller → mapped)
