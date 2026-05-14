@@ -1,8 +1,10 @@
 # Amplify — Web Guitar Amp Simulator
 
-Browser-based guitar amp simulator. User plugs guitar into audio interface, opens Chrome,
-plays through real amp tones powered by NAM (Neural Amp Modeler) AI models — all client-side
-DSP, tone3000 for amp/cab/pedal library, FastAPI + MongoDB backend for multi-device sync.
+Browser-based guitar amp simulator. Born from the need to play guitar on Linux without
+relying on Windows-only plugins (Bias FX2, Archetype, etc.). User plugs guitar into an audio
+interface, opens Chrome, and plays through real amp tones powered by NAM (Neural Amp Modeler)
+AI models — all client-side DSP. tone3000 provides the amp/cab/pedal library. FastAPI + MongoDB
+backend for multi-device preset/MIDI sync.
 
 ---
 
@@ -33,9 +35,11 @@ amplify/
 ### Audio (all client-side)
 - **Web Audio API** — browser audio graph
 - **AudioWorklet** — real-time DSP in dedicated audio thread (128-sample chunks)
-- **NAM inference** — inline JS WaveNet/LSTM inference, no ONNX runtime
+- **NAM inference** — inline JS WaveNet/LSTM inference in AudioWorklet, no ONNX runtime;
+  NAM v0.5.x format only (parser validates weight count and rejects unsupported versions)
 - **ConvolverNode** — cab IR convolution
-- **Whammy/Transpose** — two-tap crossfade OLA ring buffer in AudioWorklet (JS, Phase 9 upgrades to Rust/WASM)
+- **Whammy/Transpose** — two-tap crossfade OLA ring buffer in AudioWorklet (JS); Phase 9
+  replaces with Rust phase-vocoder → WASM for quality + lower CPU usage
 
 ### Tone library — tone3000
 - **tone3000 API v1** — official OAuth API for browsing amps, cabs, pedals
@@ -421,6 +425,9 @@ already alive. They must be explicitly closed/stopped before re-throwing.
 ### Phase 9 — Pitch Shifter (Rust/WASM)
 - Replace JS OLA whammy/transpose worklet with Rust phase-vocoder compiled to WASM
 - Better pitch quality, optional formant preservation
+- Hybrid architecture: Rust owns the DSP algorithm (pure samples-in/samples-out), JS owns the
+  AudioWorklet plumbing (WASM loading, buffer copying, AudioParam wiring)
+- NAM inference stays in JS for now; only rewrite to Rust if profiling proves JS is the bottleneck
 
 ### Phase 10 — Full Signal Chain Builder (Bias FX-style)
 - Drag-and-drop signal chain builder: multiple amps, cabs, pedals per preset
@@ -481,7 +488,7 @@ already alive. They must be explicitly closed/stopped before re-throwing.
 | Looper | 7 | Sample-accurate, SharedArrayBuffer |
 | Parametric EQ (graphical) | 8 | 8-band draggable Bode plot |
 | Spectrum analyser | 8 | Real-time FFT behind EQ curve |
-| Rust/WASM pitch shifter | 9 | Replace JS OLA whammy/transpose |
+| Rust/WASM pitch shifter | 9 | Rust phase-vocoder replaces JS OLA; NAM inference stays JS unless profiling shows need |
 | Drag-and-drop signal chain | 10 | Multiple amps/cabs/pedals, reorderable |
 | NAM pedal support | 10 | `gear=pedal` from tone3000 |
 | `preset_pedals` MongoDB collection | 10 | Slot order, tone3000_id, enabled |
