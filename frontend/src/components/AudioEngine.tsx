@@ -16,6 +16,7 @@ import { midiSetupManager } from '../lib/storage/MidiSetupManager';
 import type { MidiAction, MidiSetup, Preset, ToneRef } from '../types/audio';
 import TopBar from './TopBar';
 import SignalChain from './SignalChain';
+import Looper from './Looper';
 import Tuner from './Tuner';
 import ToneBrowser, { type BrowseTarget } from './ToneBrowser';
 import PresetsModal from './PresetsModal';
@@ -71,6 +72,10 @@ export default function AudioEngine() {
   const [midiReady,   setMidiReady]   = useState(false);
   const [midiSetups,  setMidiSetups]  = useState<MidiSetup[]>([]);
   const midiRef = useRef<MidiManager | null>(null);
+
+  // Phase 7 — Recorder + Looper
+  const [recording, setRecording] = useState(false);
+  const looperPortRef = useRef<MessagePort | null>(null);
 
   // Modal state
   const [browseTarget,  setBrowseTarget]  = useState<BrowseTarget>('amp');
@@ -166,6 +171,7 @@ export default function AudioEngine() {
       await engine.start({ inputDeviceId: inputId || undefined, outputDeviceId: outputId || undefined });
       setAnalyser(engine.getAnalyser());
       tunerNodeRef.current = engine.getTunerNode();
+      looperPortRef.current = engine.getLooperPort();
       setAudioReady(true);
       const { inputs, outputs } = await enumerateAudioDevices();
       setInputs(inputs); setOutputs(outputs);
@@ -234,6 +240,32 @@ export default function AudioEngine() {
       return next;
     });
   }, []);
+
+  // Phase 7 — Recorder
+  const handleToggleRecord = useCallback(() => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    if (recording) {
+      const blob = engine.stopRecording();
+      setRecording(false);
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        const a = Object.assign(document.createElement('a'), { href: url, download: `amplify-recording-${Date.now()}.wav` });
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+    } else {
+      const started = engine.startRecording();
+      if (started) setRecording(true);
+    }
+  }, [recording]);
+
+  // Phase 7 — Looper
+  const handleLoopRecord = useCallback(() => { engineRef.current?.startLoopRecord(); }, []);
+  const handleLoopPlay   = useCallback(() => { engineRef.current?.playLoop(); }, []);
+  const handleLoopOverdub= useCallback(() => { engineRef.current?.overdubLoop(); }, []);
+  const handleLoopStop   = useCallback(() => { engineRef.current?.stopLoop(); }, []);
+  const handleLoopClear  = useCallback(() => { engineRef.current?.clearLoop(); }, []);
 
   const handleInputChange = useCallback((id: string) => {
     setInputId(id); localStorage.setItem('amplify-input-device', id);
@@ -525,6 +557,8 @@ export default function AudioEngine() {
         onUpdatePreset={handleUpdatePreset}
         tunerVisible={tunerVisible}
         onToggleTuner={handleToggleTuner}
+        recording={recording}
+        onToggleRecord={handleToggleRecord}
       />
 
       {tunerVisible && (
@@ -552,6 +586,15 @@ export default function AudioEngine() {
         onChorus={handleChorusChange}
         onClickAmp={() => handleOpenBrowse('amp')}
         onClickCab={() => handleOpenBrowse('ir')}
+      />
+
+      <Looper
+        port={looperPortRef.current}
+        onRecord={handleLoopRecord}
+        onPlay={handleLoopPlay}
+        onOverdub={handleLoopOverdub}
+        onStop={handleLoopStop}
+        onClear={handleLoopClear}
       />
 
       {error && <p className={styles.error}>{error}</p>}

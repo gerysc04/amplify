@@ -9,6 +9,41 @@ type AudioContextWithSink = AudioContext & {
   setSinkId?(deviceId: string): Promise<void>;
 };
 
+/** Write mono Float32 samples to a WAV Blob. */
+function _writeWav(samples: Float32Array, sampleRate: number): Blob {
+  const bytesPerSample = 2;
+  const dataSize = samples.length * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  const writeString = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, 'WAVE');
+
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);                 // PCM
+  view.setUint16(22, 1, true);                 // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * bytesPerSample, true);
+  view.setUint16(32, bytesPerSample, true);
+  view.setUint16(34, 16, true);                // 16-bit
+
+  writeString(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
 /** A single-sample impulse: convolution with this = passthrough. */
 function makeDirac(ctx: AudioContext): AudioBuffer {
   const buf = ctx.createBuffer(1, 1, ctx.sampleRate);
@@ -43,6 +78,12 @@ export class AudioEngine {
   private _wahSum:        GainNode             | null = null;
   private _tuner:         AudioWorkletNode     | null = null;
   private _compressor:    AudioWorkletNode     | null = null;
+
+  // Phase 7 — Looper + Recorder
+  private _looperNode:    AudioWorkletNode     | null = null;
+  private _recorderNode:  AudioWorkletNode     | null = null;
+  private _recorderChunks: Float32Array[]      = [];
+  private _isRecording   = false;
 
   private _gain        = 0.5;
   private _irLoaded    = false;
@@ -116,6 +157,8 @@ export class AudioEngine {
       this._ctx.audioWorklet.addModule('/worklets/whammy-processor.js').catch(() => {}),
       this._ctx.audioWorklet.addModule('/worklets/tuner-processor.js').catch(() => {}),
       this._ctx.audioWorklet.addModule('/worklets/compressor-processor.js').catch(() => {}),
+      this._ctx.audioWorklet.addModule('/worklets/looper-processor.js').catch(() => {}),
+      this._ctx.audioWorklet.addModule('/worklets/recorder-processor.js').catch(() => {}),
     ]);
 
     // --- Source ---
@@ -241,7 +284,29 @@ export class AudioEngine {
     this._midFilter.connect(this._trebleFilter);
     this._trebleFilter.connect(this._cabIR);
     this._cabIR.connect(this._effects.input);
-    this._effects.output.connect(this._outputGain);
+
+    // --- Looper (between effects and output gain) ---
+    try {
+      this._looperNode = new AudioWorkletNode(this._ctx, 'looper-processor');
+    } catch { this._looperNode = null; }
+
+    if (this._looperNode) {
+      this._effects.output.connect(this._looperNode);
+      this._looperNode.connect(this._outputGain);
+    } else {
+      this._effects.output.connect(this._outputGain);
+    }
+
+    // --- Recorder (parallel tap from looper output) ---
+    try {
+      this._recorderNode = new AudioWorkletNode(this._ctx, 'recorder-processor');
+    } catch { this._recorderNode = null; }
+
+    if (this._recorderNode) {
+      const tapSource = this._looperNode ?? this._effects.output;
+      tapSource.connect(this._recorderNode);
+    }
+
     this._outputGain.connect(this._ctx.destination);
   }
 
@@ -268,6 +333,8 @@ export class AudioEngine {
     this._midFilter?.disconnect();
     this._trebleFilter?.disconnect();
     this._cabIR?.disconnect();
+    this._looperNode?.disconnect();
+    this._recorderNode?.disconnect();
     this._outputGain?.disconnect();
 
     this._stream?.getTracks().forEach((t) => t.stop());
@@ -296,6 +363,10 @@ export class AudioEngine {
     this._transposeWet  = null;
     this._tuner        = null;
     this._compressor   = null;
+    this._looperNode   = null;
+    this._recorderNode = null;
+    this._isRecording  = false;
+    this._recorderChunks = [];
     this._irLoaded     = false;
   }
 
@@ -397,6 +468,77 @@ export class AudioEngine {
   async setOutputDevice(deviceId: string): Promise<void> {
     if (!this._ctx?.setSinkId) return;
     await this._ctx.setSinkId(deviceId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 7 — Recorder
+  // ---------------------------------------------------------------------------
+
+  startRecording(): boolean {
+    if (!this._recorderNode || this._isRecording) return false;
+    this._recorderChunks = [];
+    this._isRecording = true;
+
+    this._recorderNode.port.onmessage = (e) => {
+      if (e.data.type === 'chunk') {
+        this._recorderChunks.push(new Float32Array(e.data.samples));
+      }
+    };
+
+    this._recorderNode.port.postMessage({ type: 'start' });
+    return true;
+  }
+
+  stopRecording(): Blob | null {
+    if (!this._recorderNode || !this._isRecording) return null;
+    this._isRecording = false;
+    this._recorderNode.port.postMessage({ type: 'stop' });
+
+    // Flatten chunks
+    const totalLength = this._recorderChunks.reduce((sum, c) => sum + c.length, 0);
+    const allSamples = new Float32Array(totalLength);
+    let offset = 0;
+    for (const chunk of this._recorderChunks) {
+      allSamples.set(chunk, offset);
+      offset += chunk.length;
+    }
+    this._recorderChunks = [];
+
+    return _writeWav(allSamples, this._ctx?.sampleRate ?? 48000);
+  }
+
+  isRecording(): boolean { return this._isRecording; }
+
+  // ---------------------------------------------------------------------------
+  // Phase 7 — Looper
+  // ---------------------------------------------------------------------------
+
+  startLoopRecord(): void {
+    this._looperNode?.port.postMessage({ type: 'start_record' });
+  }
+
+  stopLoopRecord(): void {
+    this._looperNode?.port.postMessage({ type: 'stop_record' });
+  }
+
+  playLoop(): void {
+    this._looperNode?.port.postMessage({ type: 'play' });
+  }
+
+  overdubLoop(): void {
+    this._looperNode?.port.postMessage({ type: 'overdub' });
+  }
+
+  stopLoop(): void {
+    this._looperNode?.port.postMessage({ type: 'stop' });
+  }
+
+  clearLoop(): void {
+    this._looperNode?.port.postMessage({ type: 'clear' });
+  }
+
+  getLooperPort(): MessagePort | null {
+    return this._looperNode?.port ?? null;
   }
 
   // ---------------------------------------------------------------------------

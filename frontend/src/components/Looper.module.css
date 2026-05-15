@@ -1,0 +1,108 @@
+.panel {
+  background: #111;
+  border: 1px solid #1e1e1e;
+  border-radius: 8px;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 40px 20px;
+  flex-shrink: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #333;
+}
+
+.status {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  padding: 2px 8px;
+  border-radius: 3px;
+  color: #555;
+  background: #1a1a1a;
+}
+
+.idle { color: #555; }
+.recording { color: #e53935; background: rgba(229, 57, 53, 0.12); }
+.playing { color: #7ec87e; background: rgba(126, 200, 126, 0.12); }
+.overdubbing { color: #ffab40; background: rgba(255, 171, 64, 0.12); }
+
+/* Progress bar */
+.progressTrack {
+  width: 100%;
+  height: 4px;
+  background: #1a1a1a;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: #c8c8c8;
+  border-radius: 2px;
+  transition: width 0.05s linear;
+}
+
+.recFill {
+  background: #e53935;
+  animation: recPulse 0.6s ease-in-out infinite;
+}
+
+@keyframes recPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Controls */
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn {
+  background: #1a1a1a;
+  border: 1px solid #2a2a2a;
+  border-radius: 4px;
+  color: #888;
+  font-size: 13px;
+  width: 36px;
+  height: 32px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.1s;
+}
+.btn:hover:not(:disabled) {
+  border-color: #444;
+  color: #ccc;
+  background: #222;
+}
+.btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.btnActive {
+  border-color: #c8c8c8;
+  color: #eee;
+  background: #2a2a2a;
+}
+
+.btnClear:hover:not(:disabled) {
+  border-color: #e53935;
+  color: #e53935;
+}
