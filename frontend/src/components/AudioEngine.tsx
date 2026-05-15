@@ -224,16 +224,21 @@ export default function AudioEngine() {
           return;
         }
       }
+      // Permission denied usually means the user blocked the site in browser settings
+      if (/permission denied|not allowed/i.test(msg)) {
+        setError('Microphone permission denied. Click the 🔒 icon in the address bar and allow microphone access, then refresh.');
+        return;
+      }
       setError(`Could not start audio: ${msg}`);
     }
   }, [audioReady, getEngine, inputId, outputId]);
 
-  // Start on first click anywhere
+  // Start on any click while audio is not ready — persistent listener so retries work
   useEffect(() => {
-    const handler = () => { startAudio(); };
-    window.addEventListener('click', handler, { once: true });
+    const handler = () => { if (!audioReady) startAudio(); };
+    window.addEventListener('click', handler);
     return () => window.removeEventListener('click', handler);
-  }, [startAudio]);
+  }, [startAudio, audioReady]);
 
   const handleToggleMute = useCallback(() => {
     const next = !muted;
@@ -593,6 +598,7 @@ export default function AudioEngine() {
         onToggleTuner={handleToggleTuner}
         recording={recording}
         onToggleRecord={handleToggleRecord}
+        onStartAudio={startAudio}
       />
 
       {tunerVisible && (

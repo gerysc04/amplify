@@ -19,6 +19,7 @@ interface Props {
   onToggleTuner: () => void;
   recording:     boolean;
   onToggleRecord:() => void;
+  onStartAudio?: () => void;
 }
 
 export default function TopBar({
@@ -27,6 +28,7 @@ export default function TopBar({
   onSavePreset, onUpdatePreset, onToggleMute,
   tunerVisible, onToggleTuner,
   recording, onToggleRecord,
+  onStartAudio,
 }: Props) {
   return (
     <header className={styles.bar}>
@@ -92,7 +94,7 @@ export default function TopBar({
           </button>
         </>
       ) : (
-        <span className={styles.waitingHint}>click anywhere to start</span>
+        <button className={styles.startBtn} onClick={onStartAudio}>▶ START</button>
       )}
     </header>
   );
