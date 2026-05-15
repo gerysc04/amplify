@@ -6,13 +6,6 @@ interface, opens Chrome, and plays through real amp tones powered by NAM (Neural
 AI models — all client-side DSP. tone3000 provides the amp/cab/pedal library. FastAPI + MongoDB
 backend for multi-device preset/MIDI sync.
 
----
-
-## Git rules
-- Never add `Co-Authored-By: Claude` or any Claude attribution to commits.
-- User (Gerysc04) is the sole committer on all git history.
-
----
 
 ## Project structure
 
@@ -473,17 +466,17 @@ already alive. They must be explicitly closed/stopped before re-throwing.
 | MIDI set param | ✅ | CC → continuous param control |
 | MIDI expression pedal | ✅ | Wah sweep, whammy heel→toe |
 | MIDI load preset | ✅ | PC message or CC-mapped |
-| Wah | ✅ | Bandpass Q=10, 300–2200Hz, dry/wet mix |
-| Transpose | ✅ | Pre-amp pitch shift ±24st, dry bypass at 0 |
-| Whammy | ✅ | Post-amp pitch shift, 12 modes + custom, expression |
+| Wah | ✅ | Peaking filter Q=5, +10dB, 300–2200Hz, 30% dry bleed |
+| Transpose | ✅ | Pre-amp pitch shift ±24st, dry bypass at 0 (JS OLA; Phase 9 → Rust/WASM) |
+| Whammy | ✅ | Post-amp pitch shift, 12 modes + custom, expression (JS OLA; Phase 9 → Rust/WASM) |
 | SVG Knob | ✅ | Vertical drag, double-click reset, `size` prop |
 
 ### ⏳ Not yet implemented
 
 | Feature | Phase | Notes |
 |---------|-------|-------|
-| Chromatic tuner | 6 | YIN algorithm in AudioWorklet |
-| Compressor | 6 | Soft-knee dynamics, AudioWorklet |
+| Chromatic tuner | 6 | ✅ YIN algorithm in AudioWorklet |
+| Compressor | 6 | ✅ Soft-knee dynamics, AudioWorklet |
 | Audio recorder | 7 | MediaRecorder → WAV export |
 | Looper | 7 | Sample-accurate, SharedArrayBuffer |
 | Parametric EQ (graphical) | 8 | 8-band draggable Bode plot |
