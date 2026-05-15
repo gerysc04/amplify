@@ -101,7 +101,7 @@ export default function AudioEngine() {
 
   useEffect(() => {
     getEngine();
-    enumerateAudioDevices().then(({ inputs, outputs }) => { setInputs(inputs); setOutputs(outputs); });
+    enumerateAudioDevices().then(({ inputs, outputs }) => { setInputs(inputs); setOutputs(outputs); }).catch(() => {});
     const all = presetManager.list();
     setPresets(all);
     refreshCachedFiles();
@@ -274,6 +274,15 @@ export default function AudioEngine() {
     setOutputId(id); localStorage.setItem('amplify-output-device', id);
     engineRef.current?.setOutputDevice(id);
   }, []);
+
+  // Refresh device list whenever Settings modal opens
+  useEffect(() => {
+    if (!showSettings) return;
+    enumerateAudioDevices().then(({ inputs, outputs }) => {
+      setInputs(inputs);
+      setOutputs(outputs);
+    }).catch(() => {});
+  }, [showSettings]);
 
   // ---------------------------------------------------------------------------
   // File loading
