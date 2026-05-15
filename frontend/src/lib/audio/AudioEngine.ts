@@ -121,6 +121,7 @@ export class AudioEngine {
   async start(options: AudioEngineOptions = {}): Promise<void> {
     this._ctx = new AudioContext({ latencyHint: 'interactive', sampleRate: 48000 }) as AudioContextWithSink;
 
+    // Try requested device first; fall back to default if the ID is stale
     try {
       this._stream = await navigator.mediaDevices.getUserMedia({
         audio: {
@@ -132,9 +133,28 @@ export class AudioEngine {
         },
       });
     } catch (err) {
-      this._ctx.close();
-      this._ctx = null;
-      throw err;
+      const msg = err instanceof Error ? err.message : '';
+      const notFound = /requested device not found|constraint not satisfied/i.test(msg);
+      if (notFound && options.inputDeviceId) {
+        try {
+          this._stream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: false,
+              noiseSuppression: false,
+              autoGainControl:  false,
+              sampleRate:       48000,
+            },
+          });
+        } catch {
+          this._ctx.close();
+          this._ctx = null;
+          throw new Error('Requested device not found');
+        }
+      } else {
+        this._ctx.close();
+        this._ctx = null;
+        throw err;
+      }
     }
 
     if (this._ctx.state === 'suspended') await this._ctx.resume();

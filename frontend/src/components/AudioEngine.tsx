@@ -199,7 +199,32 @@ export default function AudioEngine() {
         }
       }
     } catch (err) {
-      setError(`Could not start audio: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      // Stale device ID? Clear it and retry once with default
+      if (/requested device not found/i.test(msg)) {
+        if (inputId) {
+          setInputId(''); localStorage.removeItem('amplify-input-device');
+        }
+        if (outputId) {
+          setOutputId(''); localStorage.removeItem('amplify-output-device');
+        }
+        // Retry once with defaults
+        try {
+          const engine = getEngine();
+          await engine.start({});
+          setAnalyser(engine.getAnalyser());
+          tunerNodeRef.current = engine.getTunerNode();
+          looperPortRef.current = engine.getLooperPort();
+          setAudioReady(true);
+          const { inputs, outputs } = await enumerateAudioDevices();
+          setInputs(inputs); setOutputs(outputs);
+          return;
+        } catch (retryErr) {
+          setError(`Could not start audio: ${retryErr instanceof Error ? retryErr.message : 'Unknown error'}`);
+          return;
+        }
+      }
+      setError(`Could not start audio: ${msg}`);
     }
   }, [audioReady, getEngine, inputId, outputId]);
 
