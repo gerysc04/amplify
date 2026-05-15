@@ -32,18 +32,15 @@ export default function SettingsModal({
       <div className={styles.root}>
         <section className={styles.section}>
           <h3 className={styles.sectionTitle}>Audio devices</h3>
-          {inputs.length === 0 && outputs.length === 0 && (
-            <p className={styles.hint}>Start audio (click anywhere) to detect devices. Browser security requires microphone permission before listing inputs.</p>
-          )}
           <label className={styles.label}>Input (guitar)</label>
           <select className={styles.select} value={inputId} onChange={(e) => onInputChange(e.target.value)}>
             <option value="">Default</option>
-            {inputs.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || d.deviceId.slice(0, 16) + '…'}</option>)}
+            {inputs.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || d.deviceId}</option>)}
           </select>
           <label className={styles.label}>Output</label>
           <select className={styles.select} value={outputId} onChange={(e) => onOutputChange(e.target.value)}>
             <option value="">Default</option>
-            {outputs.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || d.deviceId.slice(0, 16) + '…'}</option>)}
+            {outputs.map((d) => <option key={d.deviceId} value={d.deviceId}>{d.label || d.deviceId}</option>)}
           </select>
         </section>
 

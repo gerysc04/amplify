@@ -16,7 +16,6 @@ import { midiSetupManager } from '../lib/storage/MidiSetupManager';
 import type { MidiAction, MidiSetup, Preset, ToneRef } from '../types/audio';
 import TopBar from './TopBar';
 import SignalChain from './SignalChain';
-import Looper from './Looper';
 import Tuner from './Tuner';
 import ToneBrowser, { type BrowseTarget } from './ToneBrowser';
 import PresetsModal from './PresetsModal';
@@ -73,10 +72,6 @@ export default function AudioEngine() {
   const [midiSetups,  setMidiSetups]  = useState<MidiSetup[]>([]);
   const midiRef = useRef<MidiManager | null>(null);
 
-  // Phase 7 — Recorder + Looper
-  const [recording, setRecording] = useState(false);
-  const looperPortRef = useRef<MessagePort | null>(null);
-
   // Modal state
   const [browseTarget,  setBrowseTarget]  = useState<BrowseTarget>('amp');
   const [showBrowse,    setShowBrowse]    = useState(false);
@@ -101,7 +96,7 @@ export default function AudioEngine() {
 
   useEffect(() => {
     getEngine();
-    enumerateAudioDevices().then(({ inputs, outputs }) => { setInputs(inputs); setOutputs(outputs); }).catch(() => {});
+    enumerateAudioDevices().then(({ inputs, outputs }) => { setInputs(inputs); setOutputs(outputs); });
     const all = presetManager.list();
     setPresets(all);
     refreshCachedFiles();
@@ -171,7 +166,6 @@ export default function AudioEngine() {
       await engine.start({ inputDeviceId: inputId || undefined, outputDeviceId: outputId || undefined });
       setAnalyser(engine.getAnalyser());
       tunerNodeRef.current = engine.getTunerNode();
-      looperPortRef.current = engine.getLooperPort();
       setAudioReady(true);
       const { inputs, outputs } = await enumerateAudioDevices();
       setInputs(inputs); setOutputs(outputs);
@@ -200,45 +194,36 @@ export default function AudioEngine() {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
-      // Stale device ID? Clear it and retry once with default
-      if (/requested device not found/i.test(msg)) {
-        if (inputId) {
-          setInputId(''); localStorage.removeItem('amplify-input-device');
-        }
-        if (outputId) {
-          setOutputId(''); localStorage.removeItem('amplify-output-device');
-        }
-        // Retry once with defaults
+      const notFound = err instanceof DOMException && err.name === 'NotFoundError';
+
+      if (notFound && (inputId || outputId)) {
+        // Stale device ID — clear saved IDs and retry with fresh engine + defaults
+        if (inputId) { setInputId(''); localStorage.removeItem('amplify-input-device'); }
+        if (outputId) { setOutputId(''); localStorage.removeItem('amplify-output-device'); }
         try {
-          const engine = getEngine();
-          await engine.start({});
-          setAnalyser(engine.getAnalyser());
-          tunerNodeRef.current = engine.getTunerNode();
-          looperPortRef.current = engine.getLooperPort();
+          engineRef.current = new AudioEngineCore();
+          const fresh = engineRef.current;
+          await fresh.start({});
+          setAnalyser(fresh.getAnalyser());
+          tunerNodeRef.current = fresh.getTunerNode();
           setAudioReady(true);
           const { inputs, outputs } = await enumerateAudioDevices();
           setInputs(inputs); setOutputs(outputs);
-          return;
         } catch (retryErr) {
           setError(`Could not start audio: ${retryErr instanceof Error ? retryErr.message : 'Unknown error'}`);
-          return;
         }
+      } else {
+        setError(`Could not start audio: ${msg}`);
       }
-      // Permission denied usually means the user blocked the site in browser settings
-      if (/permission denied|not allowed/i.test(msg)) {
-        setError('Microphone permission denied. Click the 🔒 icon in the address bar and allow microphone access, then refresh.');
-        return;
-      }
-      setError(`Could not start audio: ${msg}`);
     }
   }, [audioReady, getEngine, inputId, outputId]);
 
-  // Start on any click while audio is not ready — persistent listener so retries work
+  // Start on first click anywhere
   useEffect(() => {
-    const handler = () => { if (!audioReady) startAudio(); };
-    window.addEventListener('click', handler);
+    const handler = () => { startAudio(); };
+    window.addEventListener('click', handler, { once: true });
     return () => window.removeEventListener('click', handler);
-  }, [startAudio, audioReady]);
+  }, [startAudio]);
 
   const handleToggleMute = useCallback(() => {
     const next = !muted;
@@ -271,32 +256,6 @@ export default function AudioEngine() {
     });
   }, []);
 
-  // Phase 7 — Recorder
-  const handleToggleRecord = useCallback(() => {
-    const engine = engineRef.current;
-    if (!engine) return;
-    if (recording) {
-      const blob = engine.stopRecording();
-      setRecording(false);
-      if (blob) {
-        const url = URL.createObjectURL(blob);
-        const a = Object.assign(document.createElement('a'), { href: url, download: `amplify-recording-${Date.now()}.wav` });
-        a.click();
-        URL.revokeObjectURL(url);
-      }
-    } else {
-      const started = engine.startRecording();
-      if (started) setRecording(true);
-    }
-  }, [recording]);
-
-  // Phase 7 — Looper
-  const handleLoopRecord = useCallback(() => { engineRef.current?.startLoopRecord(); }, []);
-  const handleLoopPlay   = useCallback(() => { engineRef.current?.playLoop(); }, []);
-  const handleLoopOverdub= useCallback(() => { engineRef.current?.overdubLoop(); }, []);
-  const handleLoopStop   = useCallback(() => { engineRef.current?.stopLoop(); }, []);
-  const handleLoopClear  = useCallback(() => { engineRef.current?.clearLoop(); }, []);
-
   const handleInputChange = useCallback((id: string) => {
     setInputId(id); localStorage.setItem('amplify-input-device', id);
   }, []);
@@ -304,15 +263,6 @@ export default function AudioEngine() {
     setOutputId(id); localStorage.setItem('amplify-output-device', id);
     engineRef.current?.setOutputDevice(id);
   }, []);
-
-  // Refresh device list whenever Settings modal opens
-  useEffect(() => {
-    if (!showSettings) return;
-    enumerateAudioDevices().then(({ inputs, outputs }) => {
-      setInputs(inputs);
-      setOutputs(outputs);
-    }).catch(() => {});
-  }, [showSettings]);
 
   // ---------------------------------------------------------------------------
   // File loading
@@ -596,9 +546,6 @@ export default function AudioEngine() {
         onUpdatePreset={handleUpdatePreset}
         tunerVisible={tunerVisible}
         onToggleTuner={handleToggleTuner}
-        recording={recording}
-        onToggleRecord={handleToggleRecord}
-        onStartAudio={startAudio}
       />
 
       {tunerVisible && (
@@ -626,15 +573,6 @@ export default function AudioEngine() {
         onChorus={handleChorusChange}
         onClickAmp={() => handleOpenBrowse('amp')}
         onClickCab={() => handleOpenBrowse('ir')}
-      />
-
-      <Looper
-        port={looperPortRef.current}
-        onRecord={handleLoopRecord}
-        onPlay={handleLoopPlay}
-        onOverdub={handleLoopOverdub}
-        onStop={handleLoopStop}
-        onClear={handleLoopClear}
       />
 
       {error && <p className={styles.error}>{error}</p>}
