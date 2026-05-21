@@ -9,19 +9,24 @@ interface Props {
   outputId:  string;
   cachedModels: string[];
   cachedIrs:    string[];
+  audioReady: boolean;
+  latencyMs: number | null;
   onInputChange:  (id: string) => void;
   onOutputChange: (id: string) => void;
   onLoadModel:    (file: File) => void;
   onLoadIr:       (file: File) => void;
   onDeleteCached: (filename: string) => void;
+  onTestLatency: () => void;
   onClose: () => void;
 }
 
 export default function SettingsModal({
   inputs, outputs, inputId, outputId,
   cachedModels, cachedIrs,
+  audioReady, latencyMs,
   onInputChange, onOutputChange,
   onLoadModel, onLoadIr, onDeleteCached,
+  onTestLatency,
   onClose,
 }: Props) {
   const modelRef = useRef<HTMLInputElement>(null);
@@ -55,6 +60,26 @@ export default function SettingsModal({
             onChange={(e) => { const f = e.target.files?.[0]; if (f) { onLoadModel(f); e.target.value = ''; } }} />
           <input ref={irRef} type="file" accept=".wav" style={{ display: 'none' }}
             onChange={(e) => { const f = e.target.files?.[0]; if (f) { onLoadIr(f); e.target.value = ''; } }} />
+        </section>
+
+        <section className={styles.section}>
+          <h3 className={styles.sectionTitle}>Diagnostics</h3>
+          <div className={styles.importRow}>
+            <button
+              className={styles.importBtn}
+              onClick={onTestLatency}
+              disabled={!audioReady}
+              style={{ opacity: audioReady ? 1 : 0.4 }}
+            >
+              Test Latency
+            </button>
+            {latencyMs !== null && (
+              <span style={{ fontSize: 13, color: latencyMs < 0 ? '#e53935' : '#7ec87e' }}>
+                {latencyMs < 0 ? 'Could not measure' : `${latencyMs.toFixed(1)} ms`}
+              </span>
+            )}
+          </div>
+          <p className={styles.hint}>Keep strings muted during the test.</p>
         </section>
 
         {(cachedModels.length > 0 || cachedIrs.length > 0) && (

@@ -9,6 +9,41 @@ type AudioContextWithSink = AudioContext & {
   setSinkId?(deviceId: string): Promise<void>;
 };
 
+/** Write mono Float32 samples to a WAV Blob. */
+function _writeWav(samples: Float32Array, sampleRate: number): Blob {
+  const bytesPerSample = 2;
+  const dataSize = samples.length * bytesPerSample;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+
+  const writeString = (offset: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+  };
+
+  writeString(0, 'RIFF');
+  view.setUint32(4, 36 + dataSize, true);
+  writeString(8, 'WAVE');
+
+  writeString(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);                 // PCM
+  view.setUint16(22, 1, true);                 // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * bytesPerSample, true);
+  view.setUint16(32, bytesPerSample, true);
+  view.setUint16(34, 16, true);                // 16-bit
+
+  writeString(36, 'data');
+  view.setUint32(40, dataSize, true);
+
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+
+  return new Blob([buffer], { type: 'audio/wav' });
+}
+
 /** A single-sample impulse: convolution with this = passthrough. */
 function makeDirac(ctx: AudioContext): AudioBuffer {
   const buf = ctx.createBuffer(1, 1, ctx.sampleRate);
@@ -43,6 +78,12 @@ export class AudioEngine {
   private _wahSum:        GainNode             | null = null;
   private _tuner:         AudioWorkletNode     | null = null;
   private _compressor:    AudioWorkletNode     | null = null;
+
+  // Phase 7 — Looper + Recorder
+  private _looperNode:    AudioWorkletNode     | null = null;
+  private _recorderNode:  AudioWorkletNode     | null = null;
+  private _recorderChunks: Float32Array[]      = [];
+  private _isRecording   = false;
 
   private _gain        = 0.5;
   private _irLoaded    = false;
@@ -116,6 +157,8 @@ export class AudioEngine {
       this._ctx.audioWorklet.addModule('/worklets/whammy-processor.js').catch(() => {}),
       this._ctx.audioWorklet.addModule('/worklets/tuner-processor.js').catch(() => {}),
       this._ctx.audioWorklet.addModule('/worklets/compressor-processor.js').catch(() => {}),
+      this._ctx.audioWorklet.addModule('/worklets/looper-processor.js').catch(() => {}),
+      this._ctx.audioWorklet.addModule('/worklets/recorder-processor.js').catch(() => {}),
     ]);
 
     // --- Source ---
@@ -241,7 +284,31 @@ export class AudioEngine {
     this._midFilter.connect(this._trebleFilter);
     this._trebleFilter.connect(this._cabIR);
     this._cabIR.connect(this._effects.input);
-    this._effects.output.connect(this._outputGain);
+
+    // --- Looper (between effects and output gain) ---
+    try {
+      this._looperNode = new AudioWorkletNode(this._ctx, 'looper-processor');
+      this._looperNode.channelCount = 1;
+      this._looperNode.channelCountMode = 'explicit';
+    } catch { this._looperNode = null; }
+
+    if (this._looperNode) {
+      this._effects.output.connect(this._looperNode);
+      this._looperNode.connect(this._outputGain);
+    } else {
+      this._effects.output.connect(this._outputGain);
+    }
+
+    // --- Recorder (parallel tap from looper output) ---
+    try {
+      this._recorderNode = new AudioWorkletNode(this._ctx, 'recorder-processor');
+    } catch { this._recorderNode = null; }
+
+    if (this._recorderNode) {
+      const tapSource = this._looperNode ?? this._effects.output;
+      tapSource.connect(this._recorderNode);
+    }
+
     this._outputGain.connect(this._ctx.destination);
   }
 
@@ -268,6 +335,8 @@ export class AudioEngine {
     this._midFilter?.disconnect();
     this._trebleFilter?.disconnect();
     this._cabIR?.disconnect();
+    this._looperNode?.disconnect();
+    this._recorderNode?.disconnect();
     this._outputGain?.disconnect();
 
     this._stream?.getTracks().forEach((t) => t.stop());
@@ -296,6 +365,10 @@ export class AudioEngine {
     this._transposeWet  = null;
     this._tuner        = null;
     this._compressor   = null;
+    this._looperNode   = null;
+    this._recorderNode = null;
+    this._isRecording  = false;
+    this._recorderChunks = [];
     this._irLoaded     = false;
   }
 
@@ -397,6 +470,147 @@ export class AudioEngine {
   async setOutputDevice(deviceId: string): Promise<void> {
     if (!this._ctx?.setSinkId) return;
     await this._ctx.setSinkId(deviceId);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 7 — Recorder
+  // ---------------------------------------------------------------------------
+
+  startRecording(): boolean {
+    if (!this._recorderNode || this._isRecording) return false;
+    this._recorderChunks = [];
+    this._isRecording = true;
+
+    this._recorderNode.port.onmessage = (e) => {
+      if (e.data.type === 'chunk') {
+        this._recorderChunks.push(new Float32Array(e.data.samples));
+      }
+    };
+
+    this._recorderNode.port.postMessage({ type: 'start' });
+    return true;
+  }
+
+  stopRecording(): Blob | null {
+    if (!this._recorderNode || !this._isRecording) return null;
+    this._isRecording = false;
+    this._recorderNode.port.postMessage({ type: 'stop' });
+
+    const totalLength = this._recorderChunks.reduce((sum, c) => sum + c.length, 0);
+    const allSamples = new Float32Array(totalLength);
+    let offset = 0;
+    for (const chunk of this._recorderChunks) {
+      allSamples.set(chunk, offset);
+      offset += chunk.length;
+    }
+    this._recorderChunks = [];
+
+    return _writeWav(allSamples, this._ctx?.sampleRate ?? 48000);
+  }
+
+  isRecording(): boolean { return this._isRecording; }
+
+  // ---------------------------------------------------------------------------
+  // Phase 7 — Looper
+  // ---------------------------------------------------------------------------
+
+  startLoopRecord(): void {
+    this._looperNode?.port.postMessage({ type: 'start_record' });
+  }
+
+  stopLoopRecord(): void {
+    this._looperNode?.port.postMessage({ type: 'stop_record' });
+  }
+
+  playLoop(): void {
+    this._looperNode?.port.postMessage({ type: 'play' });
+  }
+
+  overdubLoop(): void {
+    this._looperNode?.port.postMessage({ type: 'overdub' });
+  }
+
+  stopLoop(): void {
+    this._looperNode?.port.postMessage({ type: 'stop' });
+  }
+
+  clearLoop(): void {
+    this._looperNode?.port.postMessage({ type: 'clear' });
+  }
+
+  getLooperPort(): MessagePort | null {
+    return this._looperNode?.port ?? null;
+  }
+
+  /** Measure effects-chain latency by injecting a sine burst and reading the recorder tap. */
+  async measureLatency(): Promise<number> {
+    if (!this._ctx || !this._monoSum || !this._recorderNode) return 0;
+    if (this._isRecording) return -1; // busy
+
+    // Temporarily hijack recorder chunks
+    this._recorderChunks = [];
+    const originalHandler = this._recorderNode.port.onmessage;
+    this._recorderNode.port.onmessage = (e) => {
+      if (e.data.type === 'chunk') this._recorderChunks.push(new Float32Array(e.data.samples));
+    };
+
+    // Start recorder, give it one block to arm
+    this._recorderNode.port.postMessage({ type: 'start' });
+    await new Promise((r) => setTimeout(r, 10));
+
+    // Build a 1 kHz Hann-windowed burst (10 ms, moderate level)
+    const sampleRate = this._ctx.sampleRate;
+    const burstSamples = Math.ceil(sampleRate * 0.01);
+    const burstBuf = this._ctx.createBuffer(1, burstSamples, sampleRate);
+    const burstCh = burstBuf.getChannelData(0);
+    for (let i = 0; i < burstSamples; i++) {
+      const w = 0.5 * (1 - Math.cos((Math.PI * i) / burstSamples));
+      burstCh[i] = Math.sin((2 * Math.PI * 1000 * i) / sampleRate) * w * 0.6;
+    }
+
+    const source = this._ctx.createBufferSource();
+    source.buffer = burstBuf;
+    source.connect(this._monoSum);
+
+    const t0 = this._ctx.currentTime;
+    source.start(t0);
+
+    // Wait for burst to propagate through the chain
+    await new Promise((r) => setTimeout(r, 120));
+
+    // Stop and clean up
+    this._recorderNode.port.postMessage({ type: 'stop' });
+    source.disconnect();
+    this._recorderNode.port.onmessage = originalHandler;
+
+    // Flatten chunks
+    const total = this._recorderChunks.reduce((s, c) => s + c.length, 0);
+    if (total === 0) return -1;
+    const flat = new Float32Array(total);
+    let off = 0;
+    for (const c of this._recorderChunks) {
+      flat.set(c, off);
+      off += c.length;
+    }
+
+    // Robust detection: require 4 consecutive samples above threshold
+    // to avoid single-sample noise false-positives.
+    const threshold = 0.06;
+    let firstIdx = -1;
+    for (let i = 0; i < flat.length - 3; i++) {
+      if (
+        Math.abs(flat[i])     > threshold &&
+        Math.abs(flat[i + 1]) > threshold &&
+        Math.abs(flat[i + 2]) > threshold &&
+        Math.abs(flat[i + 3]) > threshold
+      ) {
+        firstIdx = i;
+        break;
+      }
+    }
+    if (firstIdx < 0) return -1;
+
+    return (firstIdx / sampleRate) * 1000;
   }
 
   // ---------------------------------------------------------------------------
