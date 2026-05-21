@@ -13,10 +13,11 @@ import { isAuthenticated } from '../lib/tone3000/client';
 import type { Tone } from '../lib/tone3000/types';
 import { MidiManager } from '../lib/midi/MidiManager';
 import { midiSetupManager } from '../lib/storage/MidiSetupManager';
-import type { MidiAction, MidiSetup, Preset, ToneRef } from '../types/audio';
+import type { MidiAction, MidiSetup, Preset, ToneRef, ParametricEqBand } from '../types/audio';
 import TopBar from './TopBar';
 import SignalChain from './SignalChain';
 import Looper from './Looper';
+import ParametricEq from './ParametricEq';
 import Tuner from './Tuner';
 import ToneBrowser, { type BrowseTarget } from './ToneBrowser';
 import PresetsModal from './PresetsModal';
@@ -51,6 +52,15 @@ export default function AudioEngine() {
   const [delay,   setDelay]   = useState<DelayParams>   ({ enabled: false, time: 0.3, feedback: 0.35, mix: 0.3 });
   const [reverb,  setReverb]  = useState<ReverbParams>  ({ enabled: false, mix: 0.25 });
   const [chorus,  setChorus]  = useState<ChorusParams>  ({ enabled: false, rate: 1.5, depth: 0.005, mix: 0.3 });
+  const [parametricEq, setParametricEq] = useState<ParametricEqBand[]>(
+    [65, 125, 250, 500, 1000, 2000, 4000, 8000, 16000].map((freq) => ({
+      enabled: true,
+      type: 'peaking' as const,
+      frequency: freq,
+      gain: 0,
+      q: 1.4,
+    }))
+  );
 
   // Tuner
   const [tunerEnabled, setTunerEnabled] = useState(false);
@@ -187,6 +197,9 @@ export default function AudioEngine() {
           engine.setGateParams(preset.gate);
           engine.setEqParams(preset.eq);
           engine.setCompressorParams(preset.compressor ?? { enabled: false, threshold: -20, ratio: 4, attack: 0.003, release: 0.15, knee: 3 });
+          engine.setParametricEqBands(preset.parametricEq ?? [65, 125, 250, 500, 1000, 2000, 4000, 8000, 16000].map((freq) => ({
+            enabled: false, type: 'peaking' as const, frequency: freq, gain: 0, q: 1.4,
+          })));
           engine.setTunerEnabled(preset.tunerEnabled ?? false);
           // Load cached files silently
           const loadRef = async (ref: typeof preset.namModel, apply: (f: File, m: typeof ref) => Promise<void>) => {
@@ -252,6 +265,10 @@ export default function AudioEngine() {
   const handleDelayChange = useCallback((p: DelayParams) => { setDelay(p);  engineRef.current?.setDelayParams(p); }, []);
   const handleReverbChange= useCallback((p: ReverbParams)=> { setReverb(p); engineRef.current?.setReverbParams(p); }, []);
   const handleChorusChange= useCallback((p: ChorusParams)=> { setChorus(p); engineRef.current?.setChorusParams(p); }, []);
+  const handleParametricEqChange = useCallback((bands: ParametricEqBand[]) => {
+    setParametricEq(bands);
+    engineRef.current?.setParametricEqBands(bands);
+  }, []);
 
   const handleToggleTuner = useCallback(() => {
     setTunerVisible((v) => !v);
@@ -377,8 +394,8 @@ export default function AudioEngine() {
     namModel,
     cabIR,
     gain, volume, gate, eq, transpose, wah, whammy, compressor, delay, reverb, chorus,
-    tunerEnabled,
-  }), [namModel, cabIR, gain, volume, gate, eq, transpose, wah, whammy, compressor, delay, reverb, chorus, tunerEnabled]);
+    tunerEnabled, parametricEq,
+  }), [namModel, cabIR, gain, volume, gate, eq, transpose, wah, whammy, compressor, delay, reverb, chorus, tunerEnabled, parametricEq]);
 
   const activatePreset = useCallback((preset: Preset) => {
     setActivePreset(preset);
@@ -420,6 +437,10 @@ export default function AudioEngine() {
     setDelay(preset.delay);   engineRef.current?.setDelayParams(preset.delay);
     setReverb(preset.reverb); engineRef.current?.setReverbParams(preset.reverb);
     setChorus(preset.chorus); engineRef.current?.setChorusParams(preset.chorus);
+    const peq = preset.parametricEq ?? [65, 125, 250, 500, 1000, 2000, 4000, 8000, 16000].map((freq) => ({
+      enabled: false, type: 'peaking' as const, frequency: freq, gain: 0, q: 1.4,
+    }));
+    setParametricEq(peq); engineRef.current?.setParametricEqBands(peq);
     const tunerOn = preset.tunerEnabled ?? false;
     setTunerEnabled(tunerOn); engineRef.current?.setTunerEnabled(tunerOn);
     setNamModel(preset.namModel);
@@ -526,6 +547,12 @@ export default function AudioEngine() {
         if (action.target === 'compressor.attack')    setCompressor((p) => { const n = { ...p, attack: 0.001 + v * 0.099 }; engineRef.current?.setCompressorParams(n); return n; });
         if (action.target === 'compressor.release')   setCompressor((p) => { const n = { ...p, release: 0.01 + v * 0.99 }; engineRef.current?.setCompressorParams(n); return n; });
         if (action.target === 'compressor.knee')      setCompressor((p) => { const n = { ...p, knee: v * 12 };           engineRef.current?.setCompressorParams(n); return n; });
+        // Parametric EQ bands (8 bands × 3 params)
+        for (let i = 0; i < 9; i++) {
+          if (action.target === `parametricEq.band${i}.freq`)  setParametricEq((bands) => { const n = bands.map((b, j) => j === i ? { ...b, frequency: 20 + v * 19980, enabled: true } : b); engineRef.current?.setParametricEqBands(n); return n; });
+          if (action.target === `parametricEq.band${i}.gain`)  setParametricEq((bands) => { const n = bands.map((b, j) => j === i ? { ...b, gain: v * 36 - 18, enabled: true } : b); engineRef.current?.setParametricEqBands(n); return n; });
+          if (action.target === `parametricEq.band${i}.q`)     setParametricEq((bands) => { const n = bands.map((b, j) => j === i ? { ...b, q: 0.1 + v * 9.9, enabled: true } : b); engineRef.current?.setParametricEqBands(n); return n; });
+        }
         break;
       }
       case 'load_preset': {
@@ -629,6 +656,12 @@ export default function AudioEngine() {
         onOverdub={handleLoopOverdub}
         onStop={handleLoopStop}
         onClear={handleLoopClear}
+      />
+
+      <ParametricEq
+        bands={parametricEq}
+        onChange={handleParametricEqChange}
+        getSpectrumData={() => engineRef.current?.getSpectrumData() ?? null}
       />
 
       {error && <p className={styles.error}>{error}</p>}

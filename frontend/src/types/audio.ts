@@ -15,7 +15,15 @@ export type ParamTarget =
   | 'wah.frequency'
   | 'whammy.semitones'
   | 'whammy.expression'
-  | 'transpose.semitones';
+  | 'transpose.semitones'
+  | 'parametricEq.band0.freq' | 'parametricEq.band0.gain' | 'parametricEq.band0.q'
+  | 'parametricEq.band1.freq' | 'parametricEq.band1.gain' | 'parametricEq.band1.q'
+  | 'parametricEq.band2.freq' | 'parametricEq.band2.gain' | 'parametricEq.band2.q'
+  | 'parametricEq.band3.freq' | 'parametricEq.band3.gain' | 'parametricEq.band3.q'
+  | 'parametricEq.band4.freq' | 'parametricEq.band4.gain' | 'parametricEq.band4.q'
+  | 'parametricEq.band5.freq' | 'parametricEq.band5.gain' | 'parametricEq.band5.q'
+  | 'parametricEq.band6.freq' | 'parametricEq.band6.gain' | 'parametricEq.band6.q'
+  | 'parametricEq.band7.freq' | 'parametricEq.band7.gain' | 'parametricEq.band7.q';
 
 export type MidiAction =
   | { type: 'load_preset'; preset_id: string; preset_name?: string }
@@ -87,6 +95,16 @@ export interface WhammyParams {
   mix:        number;
 }
 
+export type ParametricEqType = 'peaking' | 'lowshelf' | 'highshelf' | 'lowpass' | 'highpass';
+
+export interface ParametricEqBand {
+  enabled: boolean;
+  type: ParametricEqType;
+  frequency: number;  // Hz, 20–20000
+  gain: number;       // dB, -18 to +18
+  q: number;          // 0.1 to 10
+}
+
 // ---- Preset -------------------------------------------------------------
 
 export interface ToneRef {
@@ -116,4 +134,5 @@ export interface Preset {
   reverb:    { enabled: boolean; mix: number };
   chorus:    { enabled: boolean; rate: number; depth: number; mix: number };
   tunerEnabled: boolean;
+  parametricEq: ParametricEqBand[];
 }

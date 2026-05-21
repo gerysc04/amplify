@@ -1,8 +1,8 @@
 import { NamProcessor } from './NamProcessor';
 import { EffectsChain, type DelayParams, type ReverbParams, type ChorusParams } from './EffectsChain';
-import type { WahParams, WhammyParams, TransposeParams } from '../../types/audio';
+import type { WahParams, WhammyParams, TransposeParams, ParametricEqBand } from '../../types/audio';
 
-export type { DelayParams, ReverbParams, ChorusParams, WahParams, WhammyParams, TransposeParams };
+export type { DelayParams, ReverbParams, ChorusParams, WahParams, WhammyParams, TransposeParams, ParametricEqBand };
 
 // setSinkId is Chrome 110+ — not yet in the standard TS dom lib.
 type AudioContextWithSink = AudioContext & {
@@ -84,6 +84,11 @@ export class AudioEngine {
   private _recorderNode:  AudioWorkletNode     | null = null;
   private _recorderChunks: Float32Array[]      = [];
   private _isRecording   = false;
+
+  // Phase 8 — Master Parametric EQ + Spectrum Analyser
+  private _parametricEq:     BiquadFilterNode[] = [];
+  private _spectrumAnalyser: AnalyserNode | null = null;
+  private _parametricEqParams: ParametricEqBand[] = [];
 
   private _gain        = 0.5;
   private _irLoaded    = false;
@@ -285,7 +290,7 @@ export class AudioEngine {
     this._trebleFilter.connect(this._cabIR);
     this._cabIR.connect(this._effects.input);
 
-    // --- Looper (between effects and output gain) ---
+    // --- Looper (between effects and parametric EQ) ---
     try {
       this._looperNode = new AudioWorkletNode(this._ctx, 'looper-processor');
       this._looperNode.channelCount = 1;
@@ -294,12 +299,11 @@ export class AudioEngine {
 
     if (this._looperNode) {
       this._effects.output.connect(this._looperNode);
-      this._looperNode.connect(this._outputGain);
     } else {
-      this._effects.output.connect(this._outputGain);
+      // effects.output will connect to EQ chain below
     }
 
-    // --- Recorder (parallel tap from looper output) ---
+    // --- Recorder (parallel tap from looper/effects output, BEFORE parametric EQ) ---
     try {
       this._recorderNode = new AudioWorkletNode(this._ctx, 'recorder-processor');
     } catch { this._recorderNode = null; }
@@ -308,6 +312,29 @@ export class AudioEngine {
       const tapSource = this._looperNode ?? this._effects.output;
       tapSource.connect(this._recorderNode);
     }
+
+    // --- Phase 8: Master Parametric EQ (after looper, before output gain) ---
+    const eqInput = this._looperNode ?? this._effects.output;
+    let currentNode: AudioNode = eqInput;
+
+    this._parametricEq = [];
+    const fixedFreqs = [65, 125, 250, 500, 1000, 2000, 4000, 8000, 16000];
+    for (let i = 0; i < 9; i++) {
+      const eq = this._ctx.createBiquadFilter();
+      eq.type = 'peaking';
+      eq.frequency.value = fixedFreqs[i];
+      eq.gain.value = 0;
+      eq.Q.value = 1.4;
+      currentNode.connect(eq);
+      this._parametricEq.push(eq);
+      currentNode = eq;
+    }
+
+    // Spectrum analyser tap after EQ
+    this._spectrumAnalyser = this._ctx.createAnalyser();
+    this._spectrumAnalyser.fftSize = 2048;
+    currentNode.connect(this._spectrumAnalyser);
+    this._spectrumAnalyser.connect(this._outputGain);
 
     this._outputGain.connect(this._ctx.destination);
   }
@@ -337,6 +364,8 @@ export class AudioEngine {
     this._cabIR?.disconnect();
     this._looperNode?.disconnect();
     this._recorderNode?.disconnect();
+    for (const eq of this._parametricEq) eq.disconnect();
+    this._spectrumAnalyser?.disconnect();
     this._outputGain?.disconnect();
 
     this._stream?.getTracks().forEach((t) => t.stop());
@@ -356,6 +385,8 @@ export class AudioEngine {
     this._cabIR        = null;
     this._effects      = null;
     this._outputGain   = null;
+    this._parametricEq = [];
+    this._spectrumAnalyser = null;
     this._wahFilter    = null;
     this._wahDry       = null;
     this._wahWet       = null;
@@ -540,6 +571,34 @@ export class AudioEngine {
 
   getLooperPort(): MessagePort | null {
     return this._looperNode?.port ?? null;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Phase 8 — Master Parametric EQ + Spectrum Analyser
+  // ---------------------------------------------------------------------------
+
+  setParametricEqBands(bands: ParametricEqBand[]): void {
+    this._parametricEqParams = bands;
+    if (!this._ctx) return;
+    const t = this._ctx.currentTime;
+    for (let i = 0; i < this._parametricEq.length; i++) {
+      const node = this._parametricEq[i];
+      const band = bands[i];
+      if (!node || !band) continue;
+      // Graphic EQ: always peaking, fixed frequency
+      node.type = 'peaking';
+      const timeConst = 0.01;
+      node.frequency.setTargetAtTime(Math.max(20, Math.min(20000, band.frequency)), t, timeConst);
+      node.gain.setTargetAtTime(band.enabled ? band.gain : 0, t, timeConst);
+      node.Q.setTargetAtTime(Math.max(0.1, Math.min(10, band.q)), t, timeConst);
+    }
+  }
+
+  getSpectrumData(): Uint8Array | null {
+    if (!this._spectrumAnalyser) return null;
+    const data = new Uint8Array(this._spectrumAnalyser.frequencyBinCount);
+    this._spectrumAnalyser.getByteFrequencyData(data);
+    return data;
   }
 
   /** Measure effects-chain latency by injecting a sine burst and reading the recorder tap. */

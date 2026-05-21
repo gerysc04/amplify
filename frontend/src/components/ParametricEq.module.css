@@ -1,0 +1,159 @@
+.panel {
+  background: #111;
+  border: 1px solid #1e1e1e;
+  border-radius: 8px;
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 40px 20px;
+  flex-shrink: 0;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.title {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #333;
+}
+
+.eqBody {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  height: 220px;
+  background: #0a0a0a;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.spectrumWrap {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.spectrumCanvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.sliders {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+  max-width: 600px;
+  padding: 12px 16px 8px;
+  box-sizing: border-box;
+}
+
+.sliderCol {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.valueLabel {
+  font-size: 9px;
+  font-weight: 600;
+  color: #666;
+  height: 12px;
+  white-space: nowrap;
+}
+
+.sliderTrack {
+  position: relative;
+  width: 18px;
+  height: 140px;
+  background: #1a1a1a;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.slider {
+  position: absolute;
+  z-index: 2;
+  appearance: none;
+  -webkit-appearance: none;
+  width: 140px;
+  height: 18px;
+  background: transparent;
+  transform: rotate(-90deg);
+  transform-origin: center;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.sliderDot {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #7ec87e;
+  box-shadow: 0 0 6px rgba(126, 200, 126, 0.4);
+  pointer-events: none;
+  z-index: 1;
+}
+
+.sliderActive + .sliderDot {
+  background: #7ec87e;
+}
+
+.freqBtn {
+  background: transparent;
+  border: none;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #555;
+  cursor: pointer;
+  padding: 2px 4px;
+  transition: color 0.1s;
+  white-space: nowrap;
+}
+
+.freqBtn:hover {
+  color: #888;
+}
+
+.freqBtnActive {
+  color: #7ec87e;
+}

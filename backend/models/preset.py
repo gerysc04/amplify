@@ -15,6 +15,7 @@ class PresetParams(BaseModel):
     delay:        dict[str, Any]
     reverb:       dict[str, Any]
     chorus:       dict[str, Any]
+    parametric_eq: list[dict[str, Any]] = []
     tuner_enabled: bool = False
 
 
