@@ -104,9 +104,9 @@ export default function ParametricEq({ bands, onChange, getSpectrumData }: Props
     onChange(updated);
   }, [bands, onChange]);
 
-  const toggleBand = useCallback((idx: number) => {
+  const resetBand = useCallback((idx: number) => {
     const updated = bands.map((b, i) =>
-      i === idx ? { ...b, enabled: !b.enabled } : b
+      i === idx ? { ...b, gain: 0 } : b
     );
     onChange(updated);
   }, [bands, onChange]);
@@ -137,22 +137,21 @@ export default function ParametricEq({ bands, onChange, getSpectrumData }: Props
                   max={DB_MAX}
                   step={0.5}
                   value={b.gain}
-                  disabled={!b.enabled}
                   onChange={(e) => updateGain(i, Number(e.target.value))}
-                  className={`${styles.slider} ${b.enabled ? styles.sliderActive : ''}`}
+                  className={styles.slider}
                   orient="vertical"
                 />
                 <div
                   className={styles.sliderDot}
                   style={{
                     bottom: `${((b.gain - DB_MIN) / (DB_MAX - DB_MIN)) * 100}%`,
-                    opacity: b.enabled ? 1 : 0.3,
                   }}
                 />
               </div>
               <button
-                className={`${styles.freqBtn} ${b.enabled ? styles.freqBtnActive : ''}`}
-                onClick={() => toggleBand(i)}
+                className={`${styles.freqBtn} ${b.gain !== 0 ? styles.freqBtnActive : ''}`}
+                onClick={() => resetBand(i)}
+                title="Reset to 0 dB"
               >
                 {FREQ_LABELS[i]}
               </button>

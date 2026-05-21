@@ -133,7 +133,7 @@
   z-index: 1;
 }
 
-.sliderActive + .sliderDot {
+.sliderDot {
   background: #7ec87e;
 }
 
