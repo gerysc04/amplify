@@ -130,7 +130,7 @@ async function apiFetch<T>(path: string, opts?: RequestInit): Promise<T> {
 
 export async function searchTones(p: SearchParams): Promise<SearchResult> {
   const params: Record<string, string> = {};
-  if (p.q)         params.q         = p.q;
+  if (p.q)         params.query     = p.q;        // tone3000 API uses 'query', not 'q'
   if (p.gears)     params.gears     = p.gears;
   if (p.platform)  params.platform  = p.platform;
   if (p.sort)      params.sort      = p.sort;
