@@ -13,7 +13,7 @@ import { isAuthenticated } from '../lib/tone3000/client';
 import type { Tone } from '../lib/tone3000/types';
 import { MidiManager } from '../lib/midi/MidiManager';
 import { midiSetupManager } from '../lib/storage/MidiSetupManager';
-import type { MidiAction, MidiSetup, Preset, ToneRef, ParametricEqBand } from '../types/audio';
+import type { MidiAction, MidiSetup, Preset, ToneRef, ParametricEqBand, PedalSlot } from '../types/audio';
 import TopBar from './TopBar';
 import SignalChain from './SignalChain';
 import Looper from './Looper';
@@ -61,6 +61,9 @@ export default function AudioEngine() {
       q: 1.4,
     }))
   );
+
+  // Phase 10 — Pedal slots
+  const [pedals, setPedals] = useState<PedalSlot[]>([]);
 
   // Tuner
   const [tunerEnabled, setTunerEnabled] = useState(false);
@@ -137,6 +140,7 @@ export default function AudioEngine() {
         setNamModel(last.namModel);
         setCabIR(last.cabIR);
         setIsFullRig(last.namModel.gearType === 'full-rig');
+        setPedals(last.pedals ?? []);
         setActivePreset(last);
         // Don't persist to localStorage again — just restoring
       }
@@ -209,6 +213,14 @@ export default function AudioEngine() {
           };
           await loadRef(preset.namModel, applyModelFile);
           if (preset.namModel.gearType !== 'full-rig') await loadRef(preset.cabIR, applyIrFile);
+
+          // Phase 10 — Restore pedal slots
+          for (const slot of (preset.pedals ?? [])) {
+            const cached = await fileCache.load(slot.filename);
+            if (cached) {
+              await engine.addPedal(cached, slot).catch(() => {});
+            }
+          }
         }
       }
     } catch (err) {
@@ -268,6 +280,54 @@ export default function AudioEngine() {
   const handleParametricEqChange = useCallback((bands: ParametricEqBand[]) => {
     setParametricEq(bands);
     engineRef.current?.setParametricEqBands(bands);
+  }, []);
+
+  // Phase 10 — Pedal handlers
+  const handleAddPedal = useCallback(async (tone: Tone, file: File, index?: number) => {
+    const slot: PedalSlot = {
+      id: crypto.randomUUID(),
+      toneId: tone.id,
+      title: tone.title,
+      filename: file.name,
+      gearType: tone.gear,
+      imageUrl: tone.images?.[0],
+      enabled: true,
+    };
+    await fileCache.store(file);
+    await engineRef.current?.addPedal(file, slot, index);
+    setPedals((prev) => {
+      const insertAt = index ?? prev.length;
+      const next = [...prev];
+      next.splice(insertAt, 0, slot);
+      return next;
+    });
+    await refreshCachedFiles();
+  }, [refreshCachedFiles]);
+
+  const handleRemovePedal = useCallback((index: number) => {
+    engineRef.current?.removePedal(index);
+    setPedals((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const handleMovePedal = useCallback((fromIndex: number, toIndex: number) => {
+    engineRef.current?.movePedal(fromIndex, toIndex);
+    setPedals((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  }, []);
+
+  const handleTogglePedal = useCallback((index: number) => {
+    setPedals((prev) => {
+      const next = [...prev];
+      const p = next[index];
+      if (!p) return prev;
+      p.enabled = !p.enabled;
+      engineRef.current?.setPedalEnabled(index, p.enabled);
+      return next;
+    });
   }, []);
 
   const handleToggleTuner = useCallback(() => {
@@ -362,6 +422,8 @@ export default function AudioEngine() {
     };
     if (tone.gear === 'ir') {
       await applyIrFile(file, meta);
+    } else if (tone.gear === 'pedal') {
+      await handleAddPedal(tone, file);
     } else {
       await applyModelFile(file, meta);
       if (tone.gear === 'full-rig') {
@@ -372,7 +434,7 @@ export default function AudioEngine() {
         setIsFullRig(false);
       }
     }
-  }, [applyModelFile, applyIrFile]);
+  }, [applyModelFile, applyIrFile, handleAddPedal]);
 
   const handleOpenBrowse = useCallback((target: BrowseTarget) => {
     if (!isAuthenticated()) {
@@ -395,7 +457,8 @@ export default function AudioEngine() {
     cabIR,
     gain, volume, gate, eq, transpose, wah, whammy, compressor, delay, reverb, chorus,
     tunerEnabled, parametricEq,
-  }), [namModel, cabIR, gain, volume, gate, eq, transpose, wah, whammy, compressor, delay, reverb, chorus, tunerEnabled, parametricEq]);
+    pedals,
+  }), [namModel, cabIR, gain, volume, gate, eq, transpose, wah, whammy, compressor, delay, reverb, chorus, tunerEnabled, parametricEq, pedals]);
 
   const activatePreset = useCallback((preset: Preset) => {
     setActivePreset(preset);
@@ -446,6 +509,7 @@ export default function AudioEngine() {
     setNamModel(preset.namModel);
     setCabIR(preset.cabIR);
     setIsFullRig(preset.namModel.gearType === 'full-rig');
+    setPedals(preset.pedals ?? []);
     activatePreset(preset);
     setShowPresets(false);
 
@@ -472,6 +536,23 @@ export default function AudioEngine() {
     await loadRef(preset.namModel, applyModelFile);
     if (preset.namModel.gearType !== 'full-rig') {
       await loadRef(preset.cabIR, applyIrFile);
+    }
+
+    // Phase 10 — Restore pedal slots (if audio is running)
+    engineRef.current?.clearPedals();
+    for (const slot of (preset.pedals ?? [])) {
+      const cached = await fileCache.load(slot.filename);
+      if (cached) {
+        await engineRef.current?.addPedal(cached, slot).catch(() => {});
+      } else if (slot.toneId && isAuthenticated()) {
+        try {
+          const { downloadToneFile } = await import('../lib/tone3000/client');
+          const file = await downloadToneFile(slot.toneId, slot.filename);
+          await engineRef.current?.addPedal(file, slot).catch(() => {});
+        } catch {
+          setError(`Could not re-fetch pedal "${slot.title}" — load it from Browse tones.`);
+        }
+      }
     }
   }, [applyModelFile, applyIrFile]);
 
@@ -646,6 +727,11 @@ export default function AudioEngine() {
         onChorus={handleChorusChange}
         onClickAmp={() => handleOpenBrowse('amp')}
         onClickCab={() => handleOpenBrowse('ir')}
+        pedals={pedals}
+        onAddPedal={() => handleOpenBrowse('pedal')}
+        onRemovePedal={handleRemovePedal}
+        onTogglePedal={handleTogglePedal}
+        onMovePedal={handleMovePedal}
       />
 
       <Looper

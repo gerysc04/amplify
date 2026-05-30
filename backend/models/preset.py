@@ -17,6 +17,7 @@ class PresetParams(BaseModel):
     chorus:       dict[str, Any]
     parametric_eq: list[dict[str, Any]] = []
     tuner_enabled: bool = False
+    pedals:        list[dict[str, Any]] = []
 
 
 class PresetCreate(BaseModel):

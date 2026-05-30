@@ -425,11 +425,13 @@ already alive. They must be explicitly closed/stopped before re-throwing.
   Parked for now — the JS OLA implementation from Phase 5 still works and is good enough.
   Revisit only if it becomes a user-facing priority.
 
-### Phase 10 — Full Signal Chain Builder (Bias FX-style)
-- Drag-and-drop signal chain builder: multiple amps, cabs, pedals per preset
+### Phase 10 — Full Signal Chain Builder (Bias FX-style) ✅ MVP
+- Pre-amp pedal slots between pre-gain and NAM amp (up to N pedals)
 - NAM pedal captures from tone3000 (`gear=pedal`) as AudioWorkletNodes
-- Configurable pre-amp and post-amp pedal slots, freely reorderable
-- `preset_pedals` collection in MongoDB stores slot order, tone3000_id, enabled state
+- Add / remove / toggle / reorder pedals via arrow buttons in SignalChain UI
+- Pedal slots embedded in preset params (`pedals: PedalSlot[]`)
+- Each pedal: dry/wet bypass, own NAM worklet instance, loaded from tone3000 or cache
+- **Not yet**: drag-and-drop (arrow buttons for now), post-amp pedal slots, multiple amps/cabs state
 
 ---
 
@@ -470,8 +472,9 @@ already alive. They must be explicitly closed/stopped before re-throwing.
 | MIDI expression pedal | ✅ | Wah sweep, whammy heel→toe |
 | MIDI load preset | ✅ | PC message or CC-mapped |
 | Wah | ✅ | Peaking filter Q=5, +10dB, 300–2200Hz, 30% dry bleed |
-| Transpose | ✅ | Pre-amp pitch shift ±24st, dry bypass at 0 (JS OLA; Phase 9 Rust/WASM attempt parked) |
-| Whammy | ✅ | Post-amp pitch shift, 12 modes + custom, expression (JS OLA; Phase 9 Rust/WASM attempt parked) |
+| Transpose | ✅ | Pre-amp pitch shift ±24st, dry bypass at 0 (JS OLA; Phase 9 parked) |
+| Whammy | ✅ | Post-amp pitch shift, 12 modes + custom, expression (JS OLA; Phase 9 parked) |
+| Pre-amp pedals | ✅ | NAM pedal slots between pre-gain and amp, browse tone3000 `gear=pedal` |
 | SVG Knob | ✅ | Vertical drag, double-click reset, `size` prop |
 
 ### ⏳ Not yet implemented
@@ -485,6 +488,8 @@ already alive. They must be explicitly closed/stopped before re-throwing.
 | Parametric EQ (graphical) | 8 | 8-band draggable Bode plot |
 | Spectrum analyser | 8 | Real-time FFT behind EQ curve |
 | Rust/WASM pitch shifter | 9 | ⏸️ Parked — JS OLA is good enough; revisit if user demand |
+| Pre-amp pedal slots | 10 | ✅ NAM pedal worklets, add/remove/toggle/reorder, tone3000 browse |
+| Drag-and-drop signal chain | 10 | Arrow-button reorder for now; full DnD is future work |
 | Drag-and-drop signal chain | 10 | Multiple amps/cabs/pedals, reorderable |
 | NAM pedal support | 10 | `gear=pedal` from tone3000 |
 | `preset_pedals` MongoDB collection | 10 | Slot order, tone3000_id, enabled |

@@ -116,6 +116,16 @@ export interface ToneRef {
   gearType?: string;
 }
 
+export interface PedalSlot {
+  id:        string;      // client-side uuid
+  toneId:    number;
+  title:     string;
+  filename:  string;
+  gearType:  string;
+  imageUrl?: string;
+  enabled:   boolean;
+}
+
 export interface Preset {
   id:        string;
   name:      string;
@@ -135,4 +145,5 @@ export interface Preset {
   chorus:    { enabled: boolean; rate: number; depth: number; mix: number };
   tunerEnabled: boolean;
   parametricEq: ParametricEqBand[];
+  pedals:    PedalSlot[];
 }

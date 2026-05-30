@@ -5,7 +5,7 @@ import Modal from './Modal';
 import { GearIcon } from './GearIcon';
 import styles from './ToneBrowser.module.css';
 
-export type BrowseTarget = 'amp' | 'ir';
+export type BrowseTarget = 'amp' | 'ir' | 'pedal';
 
 interface Props {
   target:      BrowseTarget;
@@ -28,7 +28,7 @@ const SORT_OPTIONS = [
 ];
 
 export default function ToneBrowser({ target, onLoad, onClose }: Props) {
-  const defaultGear: GearType | '' = target === 'ir' ? 'ir' : 'amp';
+  const defaultGear: GearType | '' = target === 'ir' ? 'ir' : target === 'pedal' ? 'pedal' : 'amp';
 
   const [query,      setQuery]      = useState('');
   const [gear,       setGear]       = useState<GearType | ''>(defaultGear);

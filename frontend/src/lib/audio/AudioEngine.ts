@@ -1,6 +1,7 @@
 import { NamProcessor } from './NamProcessor';
+import { PedalChain } from './PedalChain';
 import { EffectsChain, type DelayParams, type ReverbParams, type ChorusParams } from './EffectsChain';
-import type { WahParams, WhammyParams, TransposeParams, ParametricEqBand } from '../../types/audio';
+import type { WahParams, WhammyParams, TransposeParams, ParametricEqBand, PedalSlot } from '../../types/audio';
 
 export type { DelayParams, ReverbParams, ChorusParams, WahParams, WhammyParams, TransposeParams, ParametricEqBand };
 
@@ -78,6 +79,9 @@ export class AudioEngine {
   private _wahSum:        GainNode             | null = null;
   private _tuner:         AudioWorkletNode     | null = null;
   private _compressor:    AudioWorkletNode     | null = null;
+
+  // Phase 10 — PedalChain
+  private _pedalChain:    PedalChain           | null = null;
 
   // Phase 7 — Looper + Recorder
   private _looperNode:    AudioWorkletNode     | null = null;
@@ -203,6 +207,9 @@ export class AudioEngine {
     this._preGain = this._ctx.createGain();
     this._preGain.gain.value = this._gain * 4;
 
+    // --- Phase 10: PedalChain (between pre-gain and NAM amp) ---
+    this._pedalChain = new PedalChain(this._ctx);
+
     // --- NAM worklet ---
     this._nam = new AudioWorkletNode(this._ctx, 'nam-processor');
     this.nam.attach(this._nam);
@@ -291,7 +298,8 @@ export class AudioEngine {
     } else {
       this._gate.connect(this._preGain);
     }
-    this._preGain.connect(this._nam);
+    this._preGain.connect(this._pedalChain.input);
+    this._pedalChain.output.connect(this._nam);
     this._nam.connect(this._bassFilter);
     this._bassFilter.connect(this._midFilter);
     this._midFilter.connect(this._trebleFilter);
@@ -348,6 +356,7 @@ export class AudioEngine {
   }
 
   stop(): void {
+    this._pedalChain?.dispose();
     this._effects?.dispose();
     this.nam.detach();
 
@@ -724,6 +733,41 @@ export class AudioEngine {
     this._bassFilter?.gain.setTargetAtTime(bass, t, 0.01);
     this._midFilter?.gain.setTargetAtTime(mid, t, 0.01);
     this._trebleFilter?.gain.setTargetAtTime(treble, t, 0.01);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Accessors
+  // ---------------------------------------------------------------------------
+
+  // ---------------------------------------------------------------------------
+  // Phase 10 — PedalChain API
+  // ---------------------------------------------------------------------------
+
+  async addPedal(modelFile: File, slot: PedalSlot, index?: number): Promise<void> {
+    await this._pedalChain?.addPedal(modelFile, slot, index);
+  }
+
+  removePedal(index: number): void {
+    this._pedalChain?.removePedal(index);
+  }
+
+  movePedal(fromIndex: number, toIndex: number): void {
+    this._pedalChain?.movePedal(fromIndex, toIndex);
+  }
+
+  setPedalEnabled(index: number, enabled: boolean): void {
+    this._pedalChain?.setEnabled(index, enabled);
+  }
+
+  getPedalSlots(): PedalSlot[] {
+    return this._pedalChain?.getSlots() ?? [];
+  }
+
+  clearPedals(): void {
+    const count = this._pedalChain?.getLength() ?? 0;
+    for (let i = count - 1; i >= 0; i--) {
+      this._pedalChain?.removePedal(i);
+    }
   }
 
   // ---------------------------------------------------------------------------

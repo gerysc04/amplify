@@ -1,4 +1,4 @@
-import type { ToneRef } from '../types/audio';
+import type { ToneRef, PedalSlot } from '../types/audio';
 import { WHAMMY_MODES } from '../types/audio';
 import type { GateParams, EqParams, DelayParams, ReverbParams, ChorusParams, WahParams, TransposeParams, WhammyParams, CompressorParams } from '../lib/audio/AudioEngine';
 import EffectsRack from './EffectsRack';
@@ -46,6 +46,12 @@ interface Props {
   onChorus:        (p: ChorusParams) => void;
   onClickAmp:      () => void;
   onClickCab:      () => void;
+  // Phase 10 — Pedals
+  pedals:          PedalSlot[];
+  onAddPedal:      () => void;
+  onRemovePedal:   (index: number) => void;
+  onTogglePedal:   (index: number) => void;
+  onMovePedal:     (from: number, to: number) => void;
 }
 
 export default function SignalChain({
@@ -54,6 +60,7 @@ export default function SignalChain({
   onGainChange, onVolumeChange, onGate, onEq, onWah, onTranspose, onWhammy, onCompressor,
   onDelay, onReverb, onChorus,
   onClickAmp, onClickCab,
+  pedals, onAddPedal, onRemovePedal, onTogglePedal, onMovePedal,
 }: Props) {
   return (
     <div className={styles.chain}>
@@ -140,6 +147,36 @@ export default function SignalChain({
           size={40}
         />
       </div>
+
+      <div className={styles.arrow}>›</div>
+
+      {/* Phase 10 — Pedal slots */}
+      {pedals.length > 0 && (
+        <div className={styles.pedalRack}>
+          {pedals.map((pedal, i) => (
+            <div key={pedal.id} className={styles.pedalSlot}>
+              <div className={styles.pedalHeader}>
+                <button
+                  className={styles.pedalMoveBtn}
+                  onClick={() => onMovePedal(i, i - 1)}
+                  disabled={i === 0}
+                  title="Move left"
+                >←</button>
+                <Toggle on={pedal.enabled} onClick={() => onTogglePedal(i)} />
+                <button
+                  className={styles.pedalMoveBtn}
+                  onClick={() => onMovePedal(i, i + 1)}
+                  disabled={i === pedals.length - 1}
+                  title="Move right"
+                >→</button>
+              </div>
+              <div className={styles.pedalName} title={pedal.title}>{pedal.title}</div>
+              <button className={styles.pedalRemove} onClick={() => onRemovePedal(i)} title="Remove">×</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <button className={styles.addPedalBtn} onClick={onAddPedal} title="Add pedal">+ Pedal</button>
 
       <div className={styles.arrow}>›</div>
 
