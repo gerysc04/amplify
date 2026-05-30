@@ -112,8 +112,23 @@ mongod.lock
 # public/irs/*
 
 # ──────────────────────────────────────────────
+# Rust / WASM
+# ──────────────────────────────────────────────
+target/
+pkg/
+Cargo.lock
+*.rlib
+*.rmeta
+.rustc_info.json
+CACHEDIR.TAG
+
+# ──────────────────────────────────────────────
 # Misc
 # ──────────────────────────────────────────────
 *.log
 .turbo/
 .vercel/
+
+audio-tests
+
+.venv-analysis

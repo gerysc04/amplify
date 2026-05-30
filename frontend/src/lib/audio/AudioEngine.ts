@@ -88,7 +88,8 @@ export class AudioEngine {
   // Phase 8 — Master Parametric EQ + Spectrum Analyser
   private _parametricEq:     BiquadFilterNode[] = [];
   private _spectrumAnalyser: AnalyserNode | null = null;
-  private _parametricEqParams: ParametricEqBand[] = [];
+  // Parametric EQ params are stored in the BiquadFilterNode instances themselves;
+  // no separate cache needed since we read back from nodes when snapshotting.
 
   private _gain        = 0.5;
   private _irLoaded    = false;
@@ -159,6 +160,8 @@ export class AudioEngine {
     await Promise.all([
       this._ctx.audioWorklet.addModule('/worklets/gate-processor.js'),
       this._ctx.audioWorklet.addModule('/worklets/nam-processor.js'),
+      this._ctx.audioWorklet.addModule('/worklets/wasm-transpose-processor.js', { type: 'module' } as any).catch(() => {}),
+      this._ctx.audioWorklet.addModule('/worklets/wasm-whammy-processor.js', { type: 'module' } as any).catch(() => {}),
       this._ctx.audioWorklet.addModule('/worklets/whammy-processor.js').catch(() => {}),
       this._ctx.audioWorklet.addModule('/worklets/tuner-processor.js').catch(() => {}),
       this._ctx.audioWorklet.addModule('/worklets/compressor-processor.js').catch(() => {}),
@@ -251,10 +254,15 @@ export class AudioEngine {
     // Transpose — dry bypass always passes signal; wet path (worklet) only when semitones != 0
     this._transposeDry = this._ctx.createGain(); this._transposeDry.gain.value = 1;
     this._transposeWet = this._ctx.createGain(); this._transposeWet.gain.value = 0;
+    // Try WASM pitch shifter first, fall back to JS OLA
     try {
-      this._transposeNode = new AudioWorkletNode(this._ctx, 'whammy-processor');
-      (this._transposeNode.parameters as AudioParamMap).get('mix')?.setValueAtTime(1, 0);
-    } catch { this._transposeNode = null; }
+      this._transposeNode = new AudioWorkletNode(this._ctx, 'wasm-transpose-processor');
+    } catch {
+      try {
+        this._transposeNode = new AudioWorkletNode(this._ctx, 'whammy-processor');
+        (this._transposeNode.parameters as AudioParamMap).get('mix')?.setValueAtTime(1, 0);
+      } catch { this._transposeNode = null; }
+    }
 
     // source → monoSum → analyser → wah → transposeBypass/transposeNode → gate → compressor → preGain → NAM
     //   → bass → mid → treble → cabIR → effects → outputGain → speakers
@@ -473,6 +481,9 @@ export class AudioEngine {
     this._transposeDry.gain.setTargetAtTime(active ? 0 : 1, t, 0.02);
     this._transposeWet.gain.setTargetAtTime(active ? 1 : 0, t, 0.02);
     if (this._transposeNode) {
+      // WASM: send via MessagePort
+      this._transposeNode.port.postMessage({ type: 'param', name: 'semitones', value: semitones });
+      // JS fallback: AudioParam (silently fails for WASM nodes)
       (this._transposeNode.parameters as AudioParamMap)
         .get('semitones')?.setTargetAtTime(semitones, t, 0.02);
     }
@@ -578,7 +589,6 @@ export class AudioEngine {
   // ---------------------------------------------------------------------------
 
   setParametricEqBands(bands: ParametricEqBand[]): void {
-    this._parametricEqParams = bands;
     if (!this._ctx) return;
     const t = this._ctx.currentTime;
     for (let i = 0; i < this._parametricEq.length; i++) {

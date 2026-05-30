@@ -1,0 +1,14 @@
+[package]
+name = "pitch-shifter"
+version = "0.1.0"
+edition = "2021"
+authors = ["Amplify"]
+description = "Phase-vocoder pitch shifter for WebAudio AudioWorklet"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+rustfft = "6.2"
+realfft = "3.4"

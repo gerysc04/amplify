@@ -139,7 +139,7 @@ export default function ParametricEq({ bands, onChange, getSpectrumData }: Props
                   value={b.gain}
                   onChange={(e) => updateGain(i, Number(e.target.value))}
                   className={styles.slider}
-                  orient="vertical"
+                  {...{ orient: 'vertical' } as any}
                 />
                 <div
                   className={styles.sliderDot}

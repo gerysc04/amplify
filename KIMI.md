@@ -415,12 +415,15 @@ already alive. They must be explicitly closed/stopped before re-throwing.
 - Up to 8-band parametric EQ with draggable Bode plot overlay
 - Real-time FFT spectrum analyser rendered behind the EQ curve
 
-### Phase 9 — Pitch Shifter (Rust/WASM)
+### Phase 9 — Pitch Shifter (Rust/WASM) ⏸️ INCOMPLETE
 - Replace JS OLA whammy/transpose worklet with Rust phase-vocoder compiled to WASM
 - Better pitch quality, optional formant preservation
 - Hybrid architecture: Rust owns the DSP algorithm (pure samples-in/samples-out), JS owns the
   AudioWorklet plumbing (WASM loading, buffer copying, AudioParam wiring)
 - NAM inference stays in JS for now; only rewrite to Rust if profiling proves JS is the bottleneck
+- **Status**: Multiple attempts (WSOLA, pitch-synchronous granular) both sounded robotic.
+  Parked for now — the JS OLA implementation from Phase 5 still works and is good enough.
+  Revisit only if it becomes a user-facing priority.
 
 ### Phase 10 — Full Signal Chain Builder (Bias FX-style)
 - Drag-and-drop signal chain builder: multiple amps, cabs, pedals per preset
@@ -467,8 +470,8 @@ already alive. They must be explicitly closed/stopped before re-throwing.
 | MIDI expression pedal | ✅ | Wah sweep, whammy heel→toe |
 | MIDI load preset | ✅ | PC message or CC-mapped |
 | Wah | ✅ | Peaking filter Q=5, +10dB, 300–2200Hz, 30% dry bleed |
-| Transpose | ✅ | Pre-amp pitch shift ±24st, dry bypass at 0 (JS OLA; Phase 9 → Rust/WASM) |
-| Whammy | ✅ | Post-amp pitch shift, 12 modes + custom, expression (JS OLA; Phase 9 → Rust/WASM) |
+| Transpose | ✅ | Pre-amp pitch shift ±24st, dry bypass at 0 (JS OLA; Phase 9 Rust/WASM attempt parked) |
+| Whammy | ✅ | Post-amp pitch shift, 12 modes + custom, expression (JS OLA; Phase 9 Rust/WASM attempt parked) |
 | SVG Knob | ✅ | Vertical drag, double-click reset, `size` prop |
 
 ### ⏳ Not yet implemented
@@ -481,7 +484,7 @@ already alive. They must be explicitly closed/stopped before re-throwing.
 | Looper | 7 | Sample-accurate, SharedArrayBuffer |
 | Parametric EQ (graphical) | 8 | 8-band draggable Bode plot |
 | Spectrum analyser | 8 | Real-time FFT behind EQ curve |
-| Rust/WASM pitch shifter | 9 | Rust phase-vocoder replaces JS OLA; NAM inference stays JS unless profiling shows need |
+| Rust/WASM pitch shifter | 9 | ⏸️ Parked — JS OLA is good enough; revisit if user demand |
 | Drag-and-drop signal chain | 10 | Multiple amps/cabs/pedals, reorderable |
 | NAM pedal support | 10 | `gear=pedal` from tone3000 |
 | `preset_pedals` MongoDB collection | 10 | Slot order, tone3000_id, enabled |

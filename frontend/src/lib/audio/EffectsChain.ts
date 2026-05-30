@@ -124,7 +124,12 @@ export class EffectsChain {
   /** Call after AudioWorklet module is loaded */
   initWhammy(): void {
     try {
-      this._whammyNode = new AudioWorkletNode(this._ctx, 'whammy-processor');
+      // Try WASM pitch shifter first, fall back to JS OLA
+      try {
+        this._whammyNode = new AudioWorkletNode(this._ctx, 'wasm-whammy-processor');
+      } catch {
+        this._whammyNode = new AudioWorkletNode(this._ctx, 'whammy-processor');
+      }
       this._whammyIn.connect(this._whammyNode);
       this._whammyNode.connect(this._whammyWet);
       this._whammyWet.connect(this._delayDry);
@@ -141,6 +146,10 @@ export class EffectsChain {
     const node    = this._whammyNode;
     const actual  = semitones * (expression ?? 0);
     if (node) {
+      // WASM: send via MessagePort
+      node.port.postMessage({ type: 'param', name: 'semitones', value: actual });
+      node.port.postMessage({ type: 'param', name: 'mix', value: 1 });
+      // JS fallback: AudioParam (silently fails for WASM nodes)
       (node.parameters as AudioParamMap).get('semitones')?.setTargetAtTime(actual, t, 0.02);
       (node.parameters as AudioParamMap).get('mix')?.setTargetAtTime(1, t, 0.02);
     }
